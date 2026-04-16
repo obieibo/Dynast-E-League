@@ -1,34 +1,34 @@
 /**
  * FILE: helperFunctions.gs
  * PURPOSE: Core infrastructure utilities shared across all scripts.
- *          Provides workbook access, Yahoo API fetch wrappers,
- *          Yahoo player data parsing, sheet write functions (one
- *          per workbook), timestamp management, and year rollover
- *          handling for projection archiving.
+ * Provides workbook access, Yahoo API fetch wrappers (with retry logic),
+ * Yahoo player data parsing, sheet write functions (one
+ * per workbook), timestamp management, and year rollover
+ * handling for projection archiving.
  *
  * READS FROM: Named ranges in master sheet (Settings tab)
- *             Yahoo API (via yahooAuthentication.gs)
+ * Yahoo API (via yahooAuthentication.gs)
  * WRITES TO:  Master workbook, Data workbook, Archive workbook
- *             (via dedicated write functions below)
+ * (via dedicated write functions below)
  * CALLED BY:  All data fetch and update scripts
  * DEPENDENCIES: yahooAuthentication.gs, playerResolution.gs
  *
  * WORKBOOK ARCHITECTURE:
- *   Master   — Display sheets, dashboards, calculation layers.
- *              Named ranges for all settings live here.
- *   Data     — All raw data written by scripts. Never directly
- *              viewed by the user. ID: SHEET_DATA_ID named range.
- *   Archive  — Prior year snapshots. Written once per year during
- *              rollover. ID: SHEET_ARCHIVE_ID named range.
+ * Master   — Display sheets, dashboards, calculation layers.
+ * Named ranges for all settings live here.
+ * Data     — All raw data written by scripts. Never directly
+ * viewed by the user. ID: SHEET_DATA_ID named range.
+ * Archive  — Prior year snapshots. Written once per year during
+ * rollover. ID: SHEET_ARCHIVE_ID named range.
  *
  * WRITE FUNCTION SUMMARY:
- *   writeToSheet(sheetName, data)    → Master workbook
- *   writeToData(sheetName, data)     → Data workbook
- *   writeToArchive(sheetName, data)  → Archive workbook
- *   All three follow identical behavior:
- *     - Creates sheet if it does not exist
- *     - Clears existing content before writing
- *     - Writes data array starting at A1
+ * writeToSheet(sheetName, data)    → Master workbook
+ * writeToData(sheetName, data)     → Data workbook
+ * writeToArchive(sheetName, data)  → Archive workbook
+ * All three follow identical behavior:
+ * - Creates sheet if it does not exist
+ * - Clears existing content before writing
+ * - Writes data array starting at A1
  */
 
 
@@ -146,7 +146,7 @@ function writeToSheet(sheetName, dataArray) {
 /**
  * Writes data to a named sheet in the DATA workbook.
  * Use for: all raw data written by Yahoo, FanGraphs, Savant,
- *          FantasyPros, and Prospect Savant scripts.
+ * FantasyPros, and Prospect Savant scripts.
  * Creates the sheet if it does not exist.
  * Clears all existing content before writing.
  *
@@ -166,7 +166,7 @@ function writeToData(sheetName, dataArray) {
 /**
  * Writes data to a named sheet in the ARCHIVE workbook.
  * Use for: prior year snapshots during annual rollover.
- *          Called by _handleYearRollover() and archive scripts.
+ * Called by _handleYearRollover() and archive scripts.
  * Creates the sheet if it does not exist.
  * Clears all existing content before writing.
  *
@@ -219,15 +219,17 @@ function _writeToWorkbook(workbook, sheetName, dataArray, label) {
 
 
 // ============================================================
-//  YAHOO API FETCH WRAPPERS
+//  YAHOO API FETCH WRAPPERS (With Retry Logic)
 //  All Yahoo API calls route through these two functions.
 //  fetchYahooAPI for a single request.
 //  fetchAllYahooAPI for parallel batch requests (faster, preferred).
 // ============================================================
 
 /**
- * Fetches a single Yahoo Fantasy Sports API endpoint.
- * Returns parsed JSON or null on failure.
+ * Fetches a single Yahoo Fantasy Sports API endpoint with exponential backoff.
+ * Guards against transient network exceptions (like "Address unavailable")
+ * and 5xx server errors from Yahoo.
+ * * Returns parsed JSON or null on failure.
  * All callers should null-check the return value before use.
  *
  * @param {string} url - Full Yahoo API URL with format=json
@@ -239,33 +241,58 @@ function fetchYahooAPI(url) {
     return null;
   }
 
-  const response = UrlFetchApp.fetch(url, {
+  const options = {
     headers: { 'Authorization': 'Bearer ' + getYahooAccessToken() },
     muteHttpExceptions: true
-  });
+  };
 
-  if (response.getResponseCode() !== 200) {
-    Logger.log('fetchYahooAPI: HTTP ' + response.getResponseCode() + ' for ' + url);
-    return null;
+  let attempts = 0;
+  const maxAttempts = 3;
+  const backoffMs = 2000;
+
+  while (attempts < maxAttempts) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const responseCode = response.getResponseCode();
+
+      if (responseCode === 200) {
+        return JSON.parse(response.getContentText());
+      } else if (responseCode >= 500 && responseCode < 600) {
+        Logger.log(`fetchYahooAPI: HTTP ${responseCode} (Attempt ${attempts + 1}/${maxAttempts}) for ${url}`);
+        // Fall through to the retry block
+      } else {
+        // For 4xx errors (e.g. 400 Bad Request, 401 Unauthorized), fail immediately
+        Logger.log(`fetchYahooAPI: HTTP ${responseCode} for ${url}`);
+        return null;
+      }
+    } catch (e) {
+      // Catches hard network errors like "Exception: Address unavailable"
+      Logger.log(`fetchYahooAPI: Exception "${e.message}" (Attempt ${attempts + 1}/${maxAttempts}) for ${url}`);
+      // Fall through to the retry block
+    }
+
+    attempts++;
+    if (attempts < maxAttempts) {
+      // Exponential backoff: 2s, 4s...
+      Utilities.sleep(backoffMs * attempts);
+    }
   }
 
-  try {
-    return JSON.parse(response.getContentText());
-  } catch (e) {
-    Logger.log('fetchYahooAPI: JSON parse error for ' + url + ' — ' + e.message);
-    return null;
-  }
+  Logger.log(`fetchYahooAPI: Failed permanently after ${maxAttempts} attempts for ${url}`);
+  return null;
 }
 
 
 /**
  * Fetches multiple Yahoo API endpoints in parallel using UrlFetchApp.fetchAll.
- * Significantly faster than sequential fetchYahooAPI calls for batch operations.
+ * Implements exponential backoff for the entire batch if any hard network exceptions 
+ * ("Address unavailable") or 5xx server errors occur.
+ * * Significantly faster than sequential fetchYahooAPI calls for batch operations.
  * Returns an array of parsed JSON responses in the same order as the input URLs.
  * Failed or errored requests return null at their index — callers must handle nulls.
  *
  * Use this for: roster fetches, matchup history, player batch lookups,
- *               any operation needing more than 2-3 Yahoo API calls.
+ * any operation needing more than 2-3 Yahoo API calls.
  *
  * @param {string[]} urls - Array of Yahoo API URLs
  * @returns {(Object|null)[]} Array of parsed JSON responses, same length as urls
@@ -278,28 +305,62 @@ function fetchAllYahooAPI(urls) {
 
   if (!urls || urls.length === 0) return [];
 
-  const token    = getYahooAccessToken();
-  const headers  = { 'Authorization': 'Bearer ' + token };
+  const headers  = { 'Authorization': 'Bearer ' + getYahooAccessToken() };
   const requests = urls.map(url => ({
     url:               url,
     headers:           headers,
     muteHttpExceptions: true
   }));
 
-  const responses = UrlFetchApp.fetchAll(requests);
+  let attempts = 0;
+  const maxAttempts = 3;
+  const backoffMs = 2000;
 
-  return responses.map((res, i) => {
-    if (res.getResponseCode() !== 200) {
-      Logger.log('fetchAllYahooAPI: HTTP ' + res.getResponseCode() + ' for ' + urls[i]);
-      return null;
-    }
+  while (attempts < maxAttempts) {
     try {
-      return JSON.parse(res.getContentText());
+      const responses = UrlFetchApp.fetchAll(requests);
+      
+      // Check for 5xx errors across the batch. If we hit one, trigger a retry.
+      let has5xx = false;
+      for (let i = 0; i < responses.length; i++) {
+        if (responses[i].getResponseCode() >= 500 && responses[i].getResponseCode() < 600) {
+          has5xx = true;
+          break;
+        }
+      }
+
+      if (has5xx && attempts < maxAttempts - 1) {
+        Logger.log(`fetchAllYahooAPI: 5xx detected in batch (Attempt ${attempts + 1}/${maxAttempts}). Retrying...`);
+        // Fall through to the retry block
+      } else {
+        // Map and parse the successful batch
+        return responses.map((res, i) => {
+          if (res.getResponseCode() !== 200) {
+            Logger.log(`fetchAllYahooAPI: HTTP ${res.getResponseCode()} for ${urls[i]}`);
+            return null;
+          }
+          try {
+            return JSON.parse(res.getContentText());
+          } catch (e) {
+            Logger.log(`fetchAllYahooAPI: JSON parse error at index ${i} — ${e.message}`);
+            return null;
+          }
+        });
+      }
     } catch (e) {
-      Logger.log('fetchAllYahooAPI: JSON parse error at index ' + i + ' — ' + e.message);
-      return null;
+      // Catches hard network errors that break UrlFetchApp.fetchAll completely
+      Logger.log(`fetchAllYahooAPI: Exception "${e.message}" in batch (Attempt ${attempts + 1}/${maxAttempts})`);
+      // Fall through to the retry block
     }
-  });
+
+    attempts++;
+    if (attempts < maxAttempts) {
+      Utilities.sleep(backoffMs * attempts);
+    }
+  }
+
+  Logger.log(`fetchAllYahooAPI: Batch failed permanently after ${maxAttempts} attempts`);
+  return urls.map(() => null);
 }
 
 
@@ -315,15 +376,15 @@ function fetchAllYahooAPI(urls) {
  * rather than a consistent keyed structure — this function normalizes that.
  *
  * Returns a player object with these fields:
- *   pKey        — Yahoo player key (e.g. '422.p.8967')
- *   pId         — Yahoo player ID (numeric string)
- *   edKey       — Editorial player key
- *   name        — Full display name
- *   team        — MLB team abbreviation (uppercased)
- *   positions   — Comma-separated eligibility string (includes IL, NA if present)
- *   status      — Injury status string (e.g. 'IL10', 'DTD') or ''
- *   injuryNote  — Injury description string or ''
- *   keeper      — 'K' if the player is flagged as a keeper, else ''
+ * pKey        — Yahoo player key (e.g. '422.p.8967')
+ * pId         — Yahoo player ID (numeric string)
+ * edKey       — Editorial player key
+ * name        — Full display name
+ * team        — MLB team abbreviation (uppercased)
+ * positions   — Comma-separated eligibility string (includes IL, NA if present)
+ * status      — Injury status string (e.g. 'IL10', 'DTD') or ''
+ * injuryNote  — Injury description string or ''
+ * keeper      — 'K' if the player is flagged as a keeper, else ''
  *
  * @param {Array} playerDataArray - The raw player array from Yahoo API response
  * @returns {Object} Normalized player object
@@ -376,7 +437,7 @@ function parseYahooPlayer(playerDataArray) {
  * as boolean flags — used across roster, player, waiver, and IL scripts.
  *
  * @param {string} eligibilityString - Comma-separated positions from Yahoo
- *                                     e.g. 'C, 1B, IL' or 'SP, RP, NA'
+ * e.g. 'C, 1B, IL' or 'SP, RP, NA'
  * @returns {{ cleanPositions: string, isIL: boolean, isNA: boolean }}
  */
 function parsePositions(eligibilityString) {
@@ -403,8 +464,8 @@ function parsePositions(eligibilityString) {
  * Named ranges follow the UPDATE_* convention defined in Settings.
  *
  * Common named ranges:
- *   UPDATE_HOURLY, UPDATE_DAILY, UPDATE_WEEKLY,
- *   UPDATE_MANAGERS, UPDATE_LEAGUE, UPDATE_DRAFTS, UPDATE_ID_MAP
+ * UPDATE_HOURLY, UPDATE_DAILY, UPDATE_WEEKLY,
+ * UPDATE_MANAGERS, UPDATE_LEAGUE, UPDATE_DRAFTS, UPDATE_ID_MAP
  *
  * @param {string} namedRange - The named range to write the timestamp to
  */
@@ -433,9 +494,9 @@ function updateTimestamp(namedRange) {
  *
  * Google Sheets limit: 10,000,000 cells per spreadsheet.
  * Named ranges written:
- *   COUNT_CELLS_MASTER   — cell count in master workbook
- *   COUNT_CELLS_DATA     — cell count in data workbook
- *   COUNT_CELLS_ARCHIVE  — cell count in archive workbook
+ * COUNT_CELLS_MASTER   — cell count in master workbook
+ * COUNT_CELLS_DATA     — cell count in data workbook
+ * COUNT_CELLS_ARCHIVE  — cell count in archive workbook
  *
  * Note: counts allocated cells (rows × cols per sheet), not
  * cells with data. This matches how Google enforces the limit.
@@ -481,14 +542,14 @@ function spreadsheetCounts() {
  * the Archive workbook and updates CURRENT_YEAR.
  *
  * Sheets archived on rollover:
- *   _FG_PROJ_B  — FanGraphs batter projections
- *   _FG_PROJ_P  — FanGraphs pitcher projections
+ * _FG_PROJ_B  — FanGraphs batter projections
+ * _FG_PROJ_P  — FanGraphs pitcher projections
  *
  * All other year-over-year archiving is handled per-script using
  * the prevYear pattern (check archive → fetch prev → fetch current).
  *
  * @param {Spreadsheet} ss - The master spreadsheet (passed in to avoid
- *                           redundant getMasterSS() calls from callers)
+ * redundant getMasterSS() calls from callers)
  */
 function _handleYearRollover(ss) {
   const currentYearRange = ss.getRangeByName('CURRENT_YEAR');

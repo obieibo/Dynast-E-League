@@ -125,7 +125,8 @@ function triggerWeekly() {
  *   3. updateRosters()      — depends on _TRANSACTIONS and _DRAFT
  *   4-9. remaining Yahoo scripts have no inter-dependencies
  *   10. saveAcquired()      — must be after updateRosters() (reads _ROSTERS)
- *   11. spreadsheetCounts() — always last, audits after all writes complete
+ *   11. optimizeLineups()   — must be after all team/player updates are complete
+ *   12. spreadsheetCounts() — always last, audits after all writes complete
  */
 function commonUpdates() {
   updateTransactions();   // 1 — owns all transaction data
@@ -138,8 +139,9 @@ function commonUpdates() {
   updateWaivers();        // 8
   updateManagers();       // 9
   saveAcquired();         // 10 — must follow updateRosters()
-  spreadsheetCounts();    // 11
-  flushIdMatchingQueue(); // 12 — always last
+  optimizeLineup();       // 11
+  spreadsheetCounts();    // 12
+  flushIdMatchingQueue(); // 13 — always last
 }
 
 
