@@ -1,49 +1,58 @@
 /**
  * FILE: yahooAuthentication.gs
  * PURPOSE: Manages Yahoo OAuth2 authentication for all Yahoo Fantasy
- * Sports API calls. Handles token acquisition, storage,
- * refresh, and expiry. All Yahoo API scripts route through
- * this file — nothing calls the Yahoo API directly.
+ *          Sports API calls. Handles token acquisition, storage,
+ *          refresh, and expiry. All Yahoo API scripts route through
+ *          this file — nothing calls the Yahoo API directly.
  *
  * READS FROM: Named ranges in master sheet (LEAGUE_KEY)
- * Google Apps Script Properties (token storage)
- * Google Apps Script Properties (Script Properties for credentials)
+ *             Google Apps Script Properties (token storage)
  * WRITES TO:  Google Apps Script Properties (token storage)
  * CALLED BY:  helperFunctions.gs (fetchYahooAPI, fetchAllYahooAPI)
- * Any script needing Yahoo API access
+ *             Any script needing Yahoo API access
  * DEPENDENCIES: OAuth2 library (must be added via Apps Script library manager)
  *
  * OAUTH2 LIBRARY SETUP (one-time):
- * 1. In Apps Script editor → Libraries (+ icon)
- * 2. Script ID: 1B7FSrk5Zi6L1rSxxTDgDEUsPzlukDsi4KGuTMorsTQHhGBzBkMun4iDF
- * 3. Select latest version → Add
- * Docs: https://github.com/googleworkspace/apps-script-oauth2
+ *   1. In Apps Script editor → Libraries (+ icon)
+ *   2. Script ID: 1B7FSrk5Zi6L1rSxxTDgDEUsPzlukDsi4KGuTMorsTQHhGBzBkMun4iDF
+ *   3. Select latest version → Add
+ *   Docs: https://github.com/googleworkspace/apps-script-oauth2
  *
  * YAHOO APP SETUP (one-time):
- * 1. https://developer.yahoo.com/apps/create/
- * 2. Application Type: Installed Application (Native)
- * 3. API Permissions: Fantasy Sports → Read
- * 4. Add YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET to Apps Script 
- * Project Settings -> Script Properties.
- * 5. Add your script's callback URL to the Yahoo app's redirect URIs:
- * Run getAuthorizationUrl() once — it logs the callback URL to use
+ *   1. https://developer.yahoo.com/apps/create/
+ *   2. Application Type: Installed Application (Native)
+ *   3. API Permissions: Fantasy Sports → Read
+ *   4. Copy Client ID and Client Secret into constants below
+ *   5. Add your script's callback URL to the Yahoo app's redirect URIs:
+ *      Run getAuthorizationUrl() once — it logs the callback URL to use
  *
  * FIRST-TIME AUTH FLOW:
- * 1. Run getAuthorizationUrl() — logs a URL to the Apps Script console
- * 2. Open that URL in your browser
- * 3. Approve access on the Yahoo consent screen
- * 4. You will be redirected to a success page
- * 5. Token is now stored in Apps Script User Properties
- * 6. Run checkAuthStatus() to confirm — should log 'Authorized: true'
- * Token is valid for 1 hour then auto-refreshed by the OAuth2 library.
- * Re-authorization is only required if you revoke access or the
- * refresh token expires (typically after extended inactivity).
+ *   1. Run getAuthorizationUrl() — logs a URL to the Apps Script console
+ *   2. Open that URL in your browser
+ *   3. Approve access on the Yahoo consent screen
+ *   4. You will be redirected to a success page
+ *   5. Token is now stored in Apps Script User Properties
+ *   6. Run checkAuthStatus() to confirm — should log 'Authorized: true'
+ *   Token is valid for 1 hour then auto-refreshed by the OAuth2 library.
+ *   Re-authorization is only required if you revoke access or the
+ *   refresh token expires (typically after extended inactivity).
  *
  * SECURITY NOTE:
- * Client ID and Client Secret are now stored in Script Properties.
- * They are no longer hardcoded in this file, making it safe to
- * commit to a public GitHub repository.
+ *   CLIENT_ID and CLIENT_SECRET are stored as script constants here.
+ *   For a personal tool this is acceptable. Do not share this script
+ *   file publicly or commit it to a public repository.
  */
+
+
+// ============================================================
+//  CREDENTIALS
+//  Replace with your Yahoo app's Client ID and Client Secret.
+//  https://developer.yahoo.com/apps/
+// ============================================================
+
+const CLIENT_ID     = 'dj0yJmk9OU9zeHBOYkFnMlpHJmQ9WVdrOVV6RTJNakJwTmt3bWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PTMz';
+const CLIENT_SECRET = '5308c4f752665594023bb6a3ebe885ebf3e25d4e';
+
 
 // ============================================================
 //  OAUTH2 SERVICE
@@ -55,27 +64,14 @@
  * Tokens are stored per-user in Apps Script User Properties —
  * they persist across executions until revoked or expired.
  *
- * Pulls the YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET securely from 
- * the Apps Script Project Settings (Script Properties).
- *
  * @returns {OAuth2.Service} Configured OAuth2 service
  */
 function getYahooService() {
-  // Retrieve secure credentials from Script Properties instead of hardcoding
-  const scriptProps = PropertiesService.getScriptProperties();
-  const clientId = scriptProps.getProperty('YAHOO_CLIENT_ID');
-  const clientSecret = scriptProps.getProperty('YAHOO_CLIENT_SECRET');
-
-  // Failsafe: Alert the user if the properties are missing
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing Yahoo API credentials. Please add YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET to your Apps Script Project Settings -> Script Properties.');
-  }
-
   return OAuth2.createService('Yahoo')
     .setAuthorizationBaseUrl('https://api.login.yahoo.com/oauth2/request_auth')
     .setTokenUrl('https://api.login.yahoo.com/oauth2/get_token')
-    .setClientId(clientId)
-    .setClientSecret(clientSecret)
+    .setClientId(CLIENT_ID)
+    .setClientSecret(CLIENT_SECRET)
     .setCallbackFunction('authCallback')
     .setPropertyStore(PropertiesService.getUserProperties())
     .setScope('fspt-r')         // fspt-r = Fantasy Sports read-only

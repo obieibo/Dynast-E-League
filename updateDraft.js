@@ -247,7 +247,7 @@ function _buildDraftRows(rawPicks, playerMap, teamMetadata, numTeams, maps, rowY
   rawPicks.forEach(pick => {
     const p        = playerMap[pick.playerKey] || {};
     const tMeta    = teamMetadata[pick.teamKey] || { name: '', id: '', managerId: '' };
-    const masterId = resolveMasterId(maps, p.pId || null, null, p.name || null, 'updateDraft');
+    const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateDraft', parsed.team);
 
     const pickInRound  = pick.overallPick - ((pick.round - 1) * numTeams);
     const isKeeper     = (p.keeper || '').toUpperCase() === 'K';

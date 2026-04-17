@@ -156,7 +156,7 @@ function _fetchSavantData(baseUrl, year, maps) {
       fullName = `${row[iFirstName]} ${row[iLastName]}`;
     }
 
-    const masterId = resolveMasterId(maps, null, mlbId, fullName, 'getBaseballSavantPctl');
+    const masterId = resolveMasterId(maps, null, mlbamId, playerName, 'getBaseballSavantPctl', team);
 
     const newRow = [masterId];
     row.forEach((val, idx) => {

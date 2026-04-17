@@ -354,7 +354,7 @@ function _parseAllRosters(
       if (!playerData) continue;
 
       const parsed   = parseYahooPlayer(playerData);
-      const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateRosters');
+      const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateRosters', parsed.team);
 
       const { cleanPositions, isIL, isNA } = parsePositions(parsed.positions);
 

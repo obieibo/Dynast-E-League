@@ -141,7 +141,7 @@ function updateWaivers() {
 function _parseWaiverPlayer(playerData, maps) {
   const parsed = parseYahooPlayer(playerData);
 
-  const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateWaivers');
+  const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateWaivers', parsed.team);
 
   const { cleanPositions, isIL, isNA } = parsePositions(parsed.positions);
 

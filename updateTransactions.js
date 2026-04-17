@@ -342,7 +342,7 @@ function _parseTransactionRows(transObj, maps, teamToManagerMap, timeZone) {
     }
 
     // Resolve master player ID
-    const masterId = resolveMasterId(maps, yId, null, pName, 'updateTransactions');
+    const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateTransactions', parsed.team);
 
     // Parse position eligibility
     const { cleanPositions, isIL, isNA } = parsePositions(pElig);

@@ -214,7 +214,7 @@ function _parseILPlayer(playerData, maps, teamMap) {
   // Skip players without actual IL eligibility — endpoint can return DTD players
   if (!isIL) return null;
 
-  const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateIL');
+  const masterId = resolveMasterId(maps, parsed.pId, null, parsed.name, 'updateIL', parsed.team);
 
   // Extract ownership details from the player data blocks
   let rosterStatus  = 'Free Agent';
