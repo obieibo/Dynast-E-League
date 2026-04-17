@@ -33,19 +33,19 @@
  * 2b. Override platform   — ID Matching sheet, ID Header + Platform ID
  * 3. Platform ID map      — _IDPLAYER_MAP, keyed by primaryIdHeader
  * 4. MLBAM map            — _IDPLAYER_MAP, co-primary key
- * 5. Name fallback        — last resort, queues player for ID Matching
+ * 5. Name fallback        — strips qualifiers, last resort (silently resolves)
  *
  * ID MATCHING SHEET STRUCTURE (Master WB):
  * Row 1 — Title
  * Row 2 — Blank
  * Row 3 — Headers:
- * A: Status | B: Date | C: Player Name (Raw) | D: Source |
- * E: IDPLAYER | F: MLBID | G: ID Header | H: Platform ID | I: Notes
+ * A: Status | B: Date | C: Player Name | D: Team | E: Source |
+ * F: IDPLAYER | G: MLBID | H: ID Header | I: Platform ID | J: Notes
  * Row 4+ — Data
  *
  * STATUS VALUES:
- * ICON_FAIL — player resolving via name fallback.
- * Add MLBID or Platform ID to improve.
+ * ICON_FAIL — player is completely unresolved.
+ * Add MLBID or Platform ID to fix.
  * ICON_PASS — player previously failed, now resolves
  * correctly via override data.
  *
@@ -94,21 +94,22 @@ const ID_MATCHING_HEADER_ROW = 3;              // Headers are on row 3
 // Column indices (0-based) — must match ID_MATCHING_HEADERS order below
 const IDM_COL_STATUS      = 0;  // A — ICON_PASS or ICON_FAIL
 const IDM_COL_DATE        = 1;  // B — date record was first created
-const IDM_COL_RAW_NAME    = 2;  // C — Player Name (Raw) as it appeared in source
-const IDM_COL_SOURCE      = 3;  // D — which script/source produced this player
-const IDM_COL_IDPLAYER    = 4;  // E — IDPLAYER — user fills in to create override
-const IDM_COL_MLBID       = 5;  // F — MLBID — user fills in for MLBAM override
-const IDM_COL_ID_HEADER   = 6;  // G — ID Header — e.g. IDFANGRAPHS, YAHOOID
-const IDM_COL_PLATFORM_ID = 7;  // H — Platform ID — the platform-native ID value
-const IDM_COL_NOTES       = 8;  // I — resolution detail from script log
-const IDM_NUM_COLS        = 9;
+const IDM_COL_RAW_NAME    = 2;  // C — Player Name as it appeared in source
+const IDM_COL_TEAM        = 3;  // D — Player's team from the source (NEW)
+const IDM_COL_SOURCE      = 4;  // E — which script/source produced this player
+const IDM_COL_IDPLAYER    = 5;  // F — IDPLAYER — user fills in to create override
+const IDM_COL_MLBID       = 6;  // G — MLBID — user fills in for MLBAM override
+const IDM_COL_ID_HEADER   = 7;  // H — ID Header — e.g. IDFANGRAPHS, YAHOOID
+const IDM_COL_PLATFORM_ID = 8;  // I — Platform ID — the platform-native ID value
+const IDM_COL_NOTES       = 9;  // J — resolution detail from script log
+const IDM_NUM_COLS        = 10;
 
 const IDM_STATUS_FAIL = '=ICON_FAIL';
 const IDM_STATUS_PASS = '=ICON_PASS';
 
 const ID_MATCHING_HEADERS = [
-  'STATUS', 'DATE', 'PLAYER NAME (RAW)', 'SOURCE',
-  'IDPLAYER', 'MLBID', 'ID HEADER', 'PLATFORM ID', 'NOTES'
+  'Status', 'Date', 'Player Name', 'Team', 'Source',
+  'IDPLAYER', 'MLBID', 'ID Header', 'Platform ID', 'Notes'
 ];
 
 
@@ -362,7 +363,7 @@ function _buildOverrideMap() {
  * 2b. Override platform  — overridePlatformMap (ID Matching)
  * 3. Platform ID map     — idMap from _IDPLAYER_MAP
  * 4. MLBAM co-primary    — mlbamMap from _IDPLAYER_MAP
- * 5. Name fallback       — strips qualifiers, last resort, queues for ID Matching
+ * 5. Name fallback       — strips qualifiers, last resort (silently resolves)
  *
  * Pass null for any parameter not available from the calling source.
  * Never pass undefined. Source parameter should be the calling script
@@ -374,10 +375,24 @@ function _buildOverrideMap() {
  * @param  {string|null} mlbamId    - MLBAM ID
  * @param  {string|null} playerName - Player display name from source data
  * @param  {string}      [source]   - Calling script name for ID Matching logging
+ * @param  {string|Object} [teamInfo] - Team abbreviation OR an object containing {sheetName, nameCol, logoCol}
  * @returns {string} IDPLAYER or '' if unresolvable
  */
-function resolveMasterId(maps, platformId, mlbamId, playerName, source) {
+function resolveMasterId(maps, platformId, mlbamId, playerName, source, teamInfo) {
   const src = source || 'Unknown';
+  
+  // Resolve teamInfo parameter: 
+  // If it's a text abbreviation from Yahoo, build the MLB_TEAM_LOGOS formula natively.
+  // If it's a configuration object from a sheet, build the direct sheet lookup formula.
+  let tm = '';
+  if (typeof teamInfo === 'string' && teamInfo.trim() !== '') {
+    // Escapes the abbreviation and builds your exact 2D logo lookup formula
+    tm = `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${teamInfo.trim().toUpperCase()}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(CURRENT_YEAR, MLB_TEAM_YEARS, 0)), "${teamInfo.trim().toUpperCase()}")`;
+  } else if (teamInfo && typeof teamInfo === 'object') {
+    if (teamInfo.sheetName && teamInfo.nameCol && teamInfo.logoCol && playerName) {
+      tm = `=IFERROR(INDEX('${teamInfo.sheetName}'!${teamInfo.logoCol}:${teamInfo.logoCol}, MATCH("${playerName}", '${teamInfo.sheetName}'!${teamInfo.nameCol}:${teamInfo.nameCol}, 0)), "")`;
+    }
+  }
 
   // 1. Override name map — preserves qualifiers via _normalizeOverrideName
   if (playerName) {
@@ -413,20 +428,16 @@ function resolveMasterId(maps, platformId, mlbamId, playerName, source) {
   if (playerName) {
     const clean = _normalizeName(playerName);
     if (maps.nameMap[clean]) {
-      _idMatchingQueue.push({
-        playerName: playerName,
-        source:     src,
-        idPlayer:   maps.nameMap[clean],
-        notes:      `Resolved "${playerName}" via name fallback. Add MLBID or Platform ID to improve resolution.`
-      });
       return maps.nameMap[clean];
     }
   }
 
-  // Unresolved
-  if (playerName || platformId || mlbamId) {
+  // Unresolved - Pushes to ID Matching queue WITH the computed team formula
+  // NEW: Skips pushing to the queue if the source is the bulk 'updatePlayers' script!
+  if ((playerName || platformId || mlbamId) && source !== 'updatePlayers') {
     _idMatchingQueue.push({
       playerName: playerName || '',
+      team:       tm,
       source:     src,
       idPlayer:   '',
       notes:      `Unresolved — platformId=${platformId}, mlbamId=${mlbamId}, name=${playerName}`
@@ -448,11 +459,11 @@ function resolveMasterId(maps, platformId, mlbamId, playerName, source) {
  *
  * Behavior:
  * - Reads existing ID Matching rows to build deduplication set
- * - Skips entries whose Player Name (Raw) already exists in the sheet
+ * - Skips entries whose Player Name already exists in the sheet
  * - Deduplication uses _normalizeName() for matching against existing names
  * - New entries are written with ICON_FAIL status + today's date
  * formatted as MM/dd/yyyy string to avoid setValues() Date object errors
- * - All rows (existing + new) are sorted: FAIL first, Date ASC, Name ASC
+ * - All rows (existing + new) are sorted: Status (FAIL/Blank/PASS) -> Date -> Source -> Name
  * - Clears queue after writing
  *
  * If queue is empty or ID Matching sheet is unavailable, returns immediately.
@@ -494,7 +505,7 @@ function flushIdMatchingQueue() {
   const newRows     = [];
 
   _idMatchingQueue.forEach(entry => {
-    // If Yahoo didn't provide a name, label them as Unknown
+    // If source didn't provide a name, label them as Unknown
     const rawName = entry.playerName || 'Unknown Player';
     
     // Deduplicate by normalized name, or fallback to notes
@@ -507,8 +518,9 @@ function flushIdMatchingQueue() {
 
     const row = new Array(IDM_NUM_COLS).fill('');
     row[IDM_COL_STATUS]   = iconFail;
-    row[IDM_COL_DATE]     = today;       // String, not Date object
+    row[IDM_COL_DATE]     = today;       
     row[IDM_COL_RAW_NAME] = rawName;
+    row[IDM_COL_TEAM]     = entry.team; // <--- Populated with text OR formula
     row[IDM_COL_SOURCE]   = entry.source;
     row[IDM_COL_IDPLAYER] = entry.idPlayer;
     row[IDM_COL_NOTES]    = entry.notes;
@@ -517,7 +529,7 @@ function flushIdMatchingQueue() {
 
   if (newRows.length > 0) {
     const allRows = [...existingRows, ...newRows];
-    const sorted  = _sortIdMatchingRows(allRows, iconFail);
+    const sorted  = _sortIdMatchingRows(allRows, iconFail, IDM_STATUS_PASS);
     _writeIdMatchingRows(sheet, sorted);
     Logger.log('flushIdMatchingQueue: wrote ' + newRows.length + ' new entries to ID Matching.');
   }
@@ -532,7 +544,7 @@ function flushIdMatchingQueue() {
  * without name fallback using the current override maps.
  *
  * A FAIL row is promoted to PASS when ANY of these are true:
- * - Its Player Name (Raw) exists in current overrideNameMap
+ * - Its Player Name exists in current overrideNameMap
  * - Its MLBID exists in current overrideMlbamMap
  * - Its ID Header + Platform ID exists in current overridePlatformMap
  *
@@ -573,7 +585,7 @@ function updateIdMatchingStatuses() {
   });
 
   if (updates > 0) {
-    const sorted = _sortIdMatchingRows(rows, iconFail);
+    const sorted = _sortIdMatchingRows(rows, iconFail, iconPass);
     _writeIdMatchingRows(sheet, sorted);
     Logger.log('updateIdMatchingStatuses: updated ' + updates + ' rows to PASS.');
   } else {
@@ -584,27 +596,38 @@ function updateIdMatchingStatuses() {
 
 /**
  * Sorts ID Matching data rows in memory.
- * Sort order: FAIL first → Date ASC → Player Name (Raw) ASC.
- * Comparison uses iconFail value to distinguish status without
- * depending on alphabetical ordering of icon values.
+ * Sort order: Status (FAIL/Blank/PASS) → Date ASC → Source ASC → Player Name ASC.
  *
  * @param  {Array[]} rows     - Data rows (no header row)
  * @param  {string}  iconFail - ICON_FAIL value for comparison
+ * @param  {string}  iconPass - ICON_PASS value for comparison
  * @returns {Array[]} Sorted copy of rows
  */
-function _sortIdMatchingRows(rows, iconFail) {
+function _sortIdMatchingRows(rows, iconFail, iconPass) {
   return rows.slice().sort((a, b) => {
-    // Status: FAIL first
-    const aFail = a[IDM_COL_STATUS] === iconFail ? 0 : 1;
-    const bFail = b[IDM_COL_STATUS] === iconFail ? 0 : 1;
-    if (aFail !== bFail) return aFail - bFail;
+    // 1. Status: FAIL (0) -> Blank (1) -> PASS (2)
+    const getStatusRank = (status) => {
+      if (status === iconFail) return 0;
+      if (status === iconPass) return 2;
+      return 1; // blank or other
+    };
+    
+    const aStatusRank = getStatusRank(a[IDM_COL_STATUS]);
+    const bStatusRank = getStatusRank(b[IDM_COL_STATUS]);
+    if (aStatusRank !== bStatusRank) return aStatusRank - bStatusRank;
 
-    // Date: ascending
+    // 2. Date: ascending
     const aDate = a[IDM_COL_DATE] ? new Date(a[IDM_COL_DATE]).getTime() : 0;
     const bDate = b[IDM_COL_DATE] ? new Date(b[IDM_COL_DATE]).getTime() : 0;
     if (aDate !== bDate) return aDate - bDate;
 
-    // Player Name: ascending
+    // 3. Source: ascending
+    const aSource = (a[IDM_COL_SOURCE] || '').toString().toLowerCase();
+    const bSource = (b[IDM_COL_SOURCE] || '').toString().toLowerCase();
+    const sourceCmp = aSource.localeCompare(bSource);
+    if (sourceCmp !== 0) return sourceCmp;
+
+    // 4. Player Name: ascending
     return (a[IDM_COL_RAW_NAME] || '').toString().toLowerCase()
       .localeCompare((b[IDM_COL_RAW_NAME] || '').toString().toLowerCase());
   });

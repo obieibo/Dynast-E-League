@@ -30,7 +30,7 @@
  *   FantasyPros embeds ranking data as a JavaScript variable in the
  *   HTML source. If FantasyPros changes their page structure or the
  *   variable name, the regex match will fail silently and the sheet
- *   will not be updated. Check UPDATE_FANTASYPROS timestamp to detect failures.
+ *   will not be updated. Check UPDATE_FP timestamp to detect failures.
  */
 
 
@@ -128,5 +128,5 @@ function getFantasyPros() {
     Logger.log('getFantasyPros: wrote ' + (outputRows.length - 1) + ' players to ' + page.sheetName);
   });
 
-  updateTimestamp('UPDATE_FANTASYPROS');
+  updateTimestamp('UPDATE_FP');
 }

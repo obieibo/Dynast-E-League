@@ -94,7 +94,7 @@ function getBaseballSavantPctl() {
     }
   });
 
-  updateTimestamp('UPDATE_BASEBALLSAVANT');
+  updateTimestamp('UPDATE_BS');
 }
 
 

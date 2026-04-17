@@ -160,14 +160,15 @@ function commonUpdates() {
  * and getFanGraphsPitchProj() — not called here directly.
  */
 function occasionalUpdates() {
-  // getFantasyPros();           // Fast — 3 parallel HTML fetches
-  // getBaseballSavantPctl();    // Moderate — 2 CSV fetches + archive check
+  getFantasyPros();           // Fast — 3 parallel HTML fetches
+  getBaseballSavantPctl();    // Moderate — 2 CSV fetches + archive check
   // getFanGraphsBat();          // Moderate — 7 parallel API calls + archive check
   // getFanGraphsPitch();        // Moderate — 7 parallel API calls + archive check
   // getFanGraphsBatProj();      // Slower  — 16 parallel API calls (8 models × 2 types)
   // getFanGraphsPitchProj();    // Slower  — 16 parallel API calls (8 models × 2 types)
   // getFanGraphsProspects();    // Slower  — 2 fetches + archive check
   // getProspectSavantData();    // Slower  — 8 parallel fetches (4 levels × 2 types)
+  allSheetsResolution();
   spreadsheetCounts();
   flushIdMatchingQueue();     // Always last
 }
@@ -180,7 +181,8 @@ function occasionalUpdates() {
  * the full Smart Fantasy Baseball CSV and rebuilds _IDPLAYER_MAP.
  */
 function weeklyUpdates() {
-  // refreshPlayerIdMap();       // Fetches SFBB CSV → rebuilds _IDPLAYER_MAP
+  refreshPlayerIdMap();       // Fetches SFBB CSV → rebuilds _IDPLAYER_MAP
+  updatePlayers();
   updateLeagueInfo();         // League settings, stat categories, roster positions
   updateIdMatchingStatuses(); // review FAIL rows after fresh map
   spreadsheetCounts();
