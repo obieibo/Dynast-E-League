@@ -8,19 +8,19 @@ function calculatePlayerValues() {
   const weightsSheet = ss.getSheetByName("Weights"); 
   if (!weightsSheet) return;
 
-  const statHeaders = weightsSheet.getRange("J4:J13").getValues();
-  const statFactors = weightsSheet.getRange("N4:N13").getValues();
+  const statHeaders = weightsSheet.getRange("L4:L13").getValues();
+  const statFactors = weightsSheet.getRange("P4:P13").getValues();
   const denoms = {};
   for (let i = 0; i < statHeaders.length; i++) {
     let stat = statHeaders[i][0]?.toString().trim();
     if (stat) denoms[stat] = parseFloat(statFactors[i][0]) || 1;
   }
 
-  const baselineData = weightsSheet.getRange("D4:E6").getValues();
-  const baselines = { "OPS": 0.750, "ERA": 4.00, "WHIP": 1.25 }; 
+  const baselineData = weightsSheet.getRange("F4:G6").getValues();
+  const baselines = { "OPS": 0.750, "ERA": 3.80, "WHIP": 1.20 }; 
   baselineData.forEach(row => { if (row[0]) baselines[row[0].toString().trim()] = parseFloat(row[1]); });
 
-  const rlpData = weightsSheet.getRange("G4:H14").getValues();
+  const rlpData = weightsSheet.getRange("I4:J14").getValues();
   const rlpRanks = {};
   rlpData.forEach(row => { if (row[0]) rlpRanks[row[0].toString().trim()] = parseInt(row[1]) || 0; });
 
