@@ -705,18 +705,20 @@ function updateYahooRosters() {
   const draftMap = {}, transMap = {}, acqMap = {}, abbrMap = {};
   
   if (dataSS) {
-    // Draft Map
+    // 1. Current Season Draft Map
     const dSheet = dataSS.getSheetByName('_DRAFT');
     if (dSheet && dSheet.getLastRow() > 1) {
       const dData = dSheet.getDataRange().getValues();
       const h = dData[0].map(x => x.toString().trim().toUpperCase());
       const iId = h.indexOf('IDPLAYER'), iRnd = h.indexOf('ROUND');
       if (iId > -1 && iRnd > -1) {
-        for (let i = 1; i < dData.length; i++) if (dData[i][iId]) draftMap[dData[i][iId]] = parseInt(dData[i][iRnd]);
+        for (let i = 1; i < dData.length; i++) {
+          if (dData[i][iId]) draftMap[dData[i][iId]] = parseInt(dData[i][iRnd]);
+        }
       }
     }
 
-    // Transactions Map (First match is most recent)
+    // 2. Transactions Map (Recent player movement)
     const tSheet = dataSS.getSheetByName('_TRANSACTIONS');
     if (tSheet && tSheet.getLastRow() > 1) {
       const tData = tSheet.getDataRange().getDisplayValues();
@@ -725,39 +727,52 @@ function updateYahooRosters() {
       if (iId > -1 && iType > -1) {
         for (let i = 1; i < tData.length; i++) {
           const id = tData[i][iId];
-          if (id && !transMap[id]) transMap[id] = { type: tData[i][iType], date: tData[i][iDate], sourceTeam: tData[i][iRoster], sourceTeamId: tData[i][iTid] };
+          if (id && !transMap[id]) {
+            transMap[id] = { type: tData[i][iType], date: tData[i][iDate], sourceTeam: tData[i][iRoster], sourceTeamId: tData[i][iTid] };
+          }
         }
       }
     }
 
-    // Acquired Map
+    // 3. Persistent Acquired Map (History and saved Rounds)
     const aSheet = dataSS.getSheetByName('_ACQUIRED');
     if (aSheet && aSheet.getLastRow() > 1) {
       const aData = aSheet.getDataRange().getDisplayValues();
       const h = aData[0].map(x => x.toString().trim().toUpperCase());
-      const iId = h.indexOf('IDPLAYER'), iVia = h.indexOf('ACQUIRED'), iDate = h.indexOf('DATE');
+      const iId = h.indexOf('IDPLAYER'), iVia = h.indexOf('ACQUIRED'), iDate = h.indexOf('DATE'), iRnd = h.indexOf('ROUND');
+      
       if (iId > -1 && iVia > -1) {
-        for (let i = 1; i < aData.length; i++) if (aData[i][iId]) acqMap[aData[i][iId]] = { via: aData[i][iVia], date: aData[i][iDate] };
+        for (let i = 1; i < aData.length; i++) {
+          if (aData[i][iId]) {
+            acqMap[aData[i][iId]] = { 
+              via: aData[i][iVia], 
+              date: aData[i][iDate],
+              round: aData[i][iRnd] // Fixed: Now capturing the round from historical records
+            };
+          }
+        }
       }
     }
   }
 
-  // Managers Abbr Map
+  // 4. Managers Abbr Map for source identification
   const mSheet = ss.getSheetByName('Managers');
   if (mSheet && mSheet.getLastRow() >= 4) {
     const mData = mSheet.getRange(4, 1, mSheet.getLastRow() - 3, 7).getValues();
     mData.forEach(r => {
       const abbr = r[3];
-      if (abbr) { if (r[6]) abbrMap[r[6].toString()] = abbr; if (r[2]) abbrMap[r[2].toString()] = abbr; }
+      if (abbr) { 
+        if (r[6]) abbrMap[r[6].toString()] = abbr; 
+        if (r[2]) abbrMap[r[2].toString()] = abbr; 
+      }
     });
   }
 
-  // Fetch Roster Data
+  // Fetch Current Yahoo Roster Data
   const rData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/teams;out=roster/players?format=json`);
   const teamsDict = rData?.fantasy_content?.league?.[1]?.teams;
   if (!teamsDict) return;
 
-  // Schema: TEAM_ID, MANAGER_ID, ROSTER, IDPLAYER, YAHOOID, PLAYER, TEAM, ELIGIBILITY, POSITION, IL, NA, KEEPER, ROUND, ACQUIRED, DATE
   const outputRows = [['TEAM_ID', 'MANAGER_ID', 'ROSTER', 'IDPLAYER', 'YAHOOID', 'PLAYER', 'TEAM', 'ELIGIBILITY', 'POSITION', 'IL', 'NA', 'KEEPER', 'ROUND', 'ACQUIRED', 'DATE']];
 
   for (let t = 0; t < teamsDict.count; t++) {
@@ -794,6 +809,7 @@ function updateYahooRosters() {
       const acq = acqMap[primaryId] || {};
       let aVia = '', aDate = '';
 
+      // Determine Acquisition string
       if (pObj.keeper) {
         aVia = acq.via || (`${currentYear - 1} Draft`);
         aDate = acq.via ? acq.date : '';
@@ -805,12 +821,24 @@ function updateYahooRosters() {
         if (aVia.toUpperCase().startsWith('TRADE')) aVia = aVia.replace(/Trade \((.*?)\)/i, 'Trade w/ $1');
       } else {
         if (tType === '') aVia = `${currentYear} Draft`;
-        else if (tType.toUpperCase() === 'TRADE') { aVia = sourceAbbr ? `Trade w/ ${sourceAbbr}` : 'Trade'; aDate = tDate; }
-        else { aVia = tType; aDate = tDate; }
+        else if (tType.toUpperCase() === 'TRADE') { 
+          aVia = sourceAbbr ? `Trade w/ ${sourceAbbr}` : 'Trade'; 
+          aDate = tDate; 
+        } else { 
+          aVia = tType; 
+          aDate = tDate; 
+        }
       }
 
+      // ROUND CALCULATION LOGIC
+      // 1. Check if the player is a Free Agent/Waiver add this season
       const isFA = ['free', 'waiv', 'add'].some(kw => tType.toLowerCase().includes(kw) || aVia.toLowerCase().includes(kw));
-      const round = isFA ? faRound : (draftMap[primaryId] || faRound);
+      
+      // 2. Fetch round from persistent records if not in the current draft
+      const savedRound = acqMap[primaryId]?.round ? parseInt(acqMap[primaryId].round) : null;
+      
+      // 3. Priority: FA Default -> Current Draft -> Historical Draft -> FA Default fallback
+      const round = isFA ? faRound : (draftMap[primaryId] || savedRound || faRound);
 
       outputRows.push([tId, mId, rName, primaryId, pObj.pId, pObj.name, pObj.team, pObj.positions, cleanPositions, isIL, isNA, pObj.keeper, round, aVia, aDate]);
     }

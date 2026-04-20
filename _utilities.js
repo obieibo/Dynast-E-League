@@ -77,15 +77,16 @@ function saveAcquiredData() {
 }
 
 // ============================================================================
-//  OPTIMIZE ACTIVE LINEUPS
+//  OPTIMIZE LINEUP
 // ============================================================================
 
 /**
- * Optimizes the active lineup on the 'My Team' dashboard.
- * Uses a strict 5-tier sorting algorithm and named ranges to assign positions.
+ * Optimizes the lineup on the 'My Team' dashboard.
+ * Uses a strict 6-tier sorting algorithm and named ranges to assign positions.
+ * IL and NA players are deprioritized and only assigned if no healthy options exist.
  * @writesTo 'My Team' (MY_TEAM_OPTIMIZED)
  */
-function optimizeActiveLineups() {
+function optimizeLineup() {
   const ss = getPrimarySS();
   const dataSS = getDataSS();
   if (!dataSS) return;
@@ -99,7 +100,7 @@ function optimizeActiveLineups() {
   const infoData = infoSheet.getRange("A2:C").getValues();
   let slots = [];
   infoData.forEach(row => {
-    if (row[0] === "Roster Position" && row[1] !== "BN" && row[1] !== "") {
+    if (row[0] === "roster_positions" && row[1] !== "BN" && row[1] !== "") {
       let count = parseInt(row[2]) || 1;
       for (let c = 0; c < count; c++) slots.push(row[1]);
     }
@@ -124,7 +125,6 @@ function optimizeActiveLineups() {
   // 3. Build Player Objects
   let players = [];
   for (let i = 0; i < namesData.length; i++) {
-    // Handle 2-column MY_TEAM_PLAYER range (Use first column text)
     let pName = Array.isArray(namesData[i]) ? namesData[i][0] : namesData[i];
     if (!pName) continue;
 
@@ -132,6 +132,7 @@ function optimizeActiveLineups() {
       idx: i, 
       name: pName.toString(),
       pos: (posData[i]?.[0] || "").toString().split(',').map(p => p.trim()),
+      // Identifies players on IL or NA
       unavail: (ilData[i]?.[0] === true || naData[i]?.[0] === true || ilData[i]?.[0] === "TRUE"),
       val: parseFloat(valData[i]?.[0]),
       kRnd: parseFloat(kRndData[i]?.[0]),
@@ -139,8 +140,12 @@ function optimizeActiveLineups() {
     });
   }
 
-  // 4. Multi-Tier Sorting Algorithm
+  // 4. Multi-Tier Sorting Algorithm (Updated)
   players.sort((a, b) => {
+    // TIER 0: Availability (New)
+    // Healthy players (unavail: false) sorted before IL/NA players (unavail: true)
+    if (a.unavail !== b.unavail) return a.unavail ? 1 : -1;
+
     // Tier 1: Value (Desc)
     const vA = !isNaN(a.val) ? a.val : -Infinity;
     const vB = !isNaN(b.val) ? b.val : -Infinity;
@@ -190,36 +195,38 @@ function optimizeActiveLineups() {
     return false;
   }
 
+  // ALL PASSES: unavail check removed. Healthy players are handled first due to sorting.
+  
   // Pass 1-3: Pitchers (Pure RP -> Dual SP/RP -> Pure SP)
   players.forEach(p => {
-    if (p.unavail || used.has(p.name)) return;
+    if (used.has(p.name)) return;
     const isSP = p.pos.includes("SP"), isRP = p.pos.includes("RP") || p.pos.includes("P");
     if (isRP && !isSP) assign(p, ["RP", "P"]);
   });
   players.forEach(p => {
-    if (p.unavail || used.has(p.name)) return;
+    if (used.has(p.name)) return;
     const isSP = p.pos.includes("SP"), isRP = p.pos.includes("RP") || p.pos.includes("P");
     if (isRP && isSP) assign(p, ["RP", "P", "SP"]);
   });
   players.forEach(p => {
-    if (p.unavail || used.has(p.name)) return;
+    if (used.has(p.name)) return;
     const isSP = p.pos.includes("SP"), isRP = p.pos.includes("RP") || p.pos.includes("P");
     if (isSP && !isRP) assign(p, ["SP", "P"]);
   });
 
   // Pass 4-6: Batters (Strict 1-Pos -> Primary -> Flex)
   players.forEach(p => {
-    if (p.unavail || used.has(p.name)) return;
+    if (used.has(p.name)) return;
     const isP = p.pos.some(x => ["SP","RP","P"].includes(x));
     if (!isP && p.pos.length === 1) assign(p, [p.pos[0]]);
   });
   players.forEach(p => {
-    if (p.unavail || used.has(p.name)) return;
+    if (used.has(p.name)) return;
     const isP = p.pos.some(x => ["SP","RP","P"].includes(x));
     if (!isP) assign(p, p.pos);
   });
   players.forEach(p => {
-    if (p.unavail || used.has(p.name)) return;
+    if (used.has(p.name)) return;
     const isP = p.pos.some(x => ["SP","RP","P"].includes(x));
     if (!isP) {
       let done = false;
@@ -238,6 +245,6 @@ function optimizeActiveLineups() {
     if (!pName) assignments[i] = [""];
   }
   
-  // Write
+  // Write to 'My Team' (MY_TEAM_OPTIMIZED)
   outRange.setValues(assignments);
 }

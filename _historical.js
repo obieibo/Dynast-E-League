@@ -7,14 +7,14 @@
  */
 
 // ============================================================================
-//  HISTORICAL TEAM STATS (CONSOLIDATED)
+//  HISTORICAL YAHOO TEAM STATS (CONSOLIDATED)
 // ============================================================================
 
 /**
- * Fetches final season stats and appends them to a master historical sheet.
+ * Fetches final Yahoo season stats and appends them to a master historical sheet.
  * @param {number|string} year - Optional. Target year. Defaults to current year - 1.
  */
-function updateHistoricalTeamStats(year) {
+function updateHistoricalYahooTeamStats(year) {
   const ss = getPrimarySS();
   const targetYear = year || parseInt(ss.getRangeByName("CURRENT_YEAR").getValue()) - 1;
   const keysRange = ss.getRangeByName("LEAGUE_KEYS_HISTORY");
@@ -86,14 +86,14 @@ function updateHistoricalTeamStats(year) {
 }
 
 // ============================================================================
-//  HISTORICAL ROSTERS (CONSOLIDATED MASTER)
+//  HISTORICAL YAHOO ROSTERS (CONSOLIDATED MASTER)
 // ============================================================================
 
 /**
- * Fetches rosters and appends them to a single master database sheet.
+ * Fetches Yahoo rosters and appends them to a single master database sheet.
  * SCHEMA: YEAR, WEEK, TEAM_ID, ROSTER, IDPLAYER, YAHOOID, PLAYER, POSITION
  */
-function updateHistoricalRosters(backfillYear, backfillWeek) {
+function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
   const ss = getPrimarySS();
   const dataSS = getDataSS();
   
