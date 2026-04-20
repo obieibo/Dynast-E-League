@@ -13,24 +13,12 @@ let _primarySSCache = null;
 let _dataSSCache = null;
 let _archiveSSCache = null;
 
-// ============================================================================
-//  WORKBOOK ACCESS
-// ============================================================================
-
-/**
- * Returns the Primary (active) spreadsheet.
- * @returns {SpreadsheetApp.Spreadsheet}
- */
 function getPrimarySS() {
   if (_primarySSCache) return _primarySSCache;
   _primarySSCache = SpreadsheetApp.getActiveSpreadsheet();
   return _primarySSCache;
 }
 
-/**
- * Returns the Data workbook using the SHEET_DATA_ID named range.
- * @returns {SpreadsheetApp.Spreadsheet|null}
- */
 function getDataSS() {
   if (_dataSSCache) return _dataSSCache;
   const range = getPrimarySS().getRangeByName('SHEET_DATA_ID');
@@ -42,10 +30,6 @@ function getDataSS() {
   return _dataSSCache;
 }
 
-/**
- * Returns the Archive workbook using the SHEET_ARCHIVE_ID named range.
- * @returns {SpreadsheetApp.Spreadsheet|null}
- */
 function getArchiveSS() {
   if (_archiveSSCache) return _archiveSSCache;
   const range = getPrimarySS().getRangeByName('SHEET_ARCHIVE_ID');
@@ -61,38 +45,20 @@ function getArchiveSS() {
 //  SHEET WRITE FUNCTIONS
 // ============================================================================
 
-/**
- * Writes 2D array data to the Primary workbook.
- * @param {string} sheetName - Target sheet.
- * @param {Array[]} dataArray - 2D array of values.
- */
 function writeToPrimary(sheetName, dataArray) {
   _writeToWorkbook(getPrimarySS(), sheetName, dataArray);
 }
 
-/**
- * Writes 2D array data to the Data workbook.
- * @param {string} sheetName - Target sheet.
- * @param {Array[]} dataArray - 2D array of values.
- */
 function writeToData(sheetName, dataArray) {
   const ss = getDataSS();
   if (ss) _writeToWorkbook(ss, sheetName, dataArray);
 }
 
-/**
- * Writes 2D array data to the Archive workbook.
- * @param {string} sheetName - Target sheet.
- * @param {Array[]} dataArray - 2D array of values.
- */
 function writeToArchive(sheetName, dataArray) {
   const ss = getArchiveSS();
   if (ss) _writeToWorkbook(ss, sheetName, dataArray);
 }
 
-/**
- * Internal core write logic. Clears target sheet before writing.
- */
 function _writeToWorkbook(workbook, sheetName, dataArray) {
   if (!dataArray || dataArray.length === 0) return;
   let sheet = workbook.getSheetByName(sheetName);
@@ -112,11 +78,6 @@ function _writeToWorkbook(workbook, sheetName, dataArray) {
 //  YAHOO API FETCH WRAPPERS
 // ============================================================================
 
-/**
- * Fetches a single Yahoo API endpoint with exponential backoff.
- * @param {string} url - Yahoo API URL.
- * @returns {Object|null} Parsed JSON or null.
- */
 function _fetchYahooAPI(url) {
   if (!_hasYahooAccess()) return null;
 
@@ -146,11 +107,6 @@ function _fetchYahooAPI(url) {
   return null;
 }
 
-/**
- * Fetches multiple Yahoo API endpoints in parallel using UrlFetchApp.fetchAll.
- * @param {string[]} urls - Array of URLs.
- * @returns {(Object|null)[]} Array of parsed JSON responses.
- */
 function _fetchAllYahooAPI(urls) {
   if (!_hasYahooAccess() || !urls || urls.length === 0) return urls.map(() => null);
 
@@ -190,11 +146,6 @@ function _fetchAllYahooAPI(urls) {
 //  YAHOO PLAYER PARSER
 // ============================================================================
 
-/**
- * Normalizes Yahoo's nested player array into a flat, predictable object.
- * @param {Array} playerDataArray - Raw nested array.
- * @returns {Object} Flat player object.
- */
 function _parseYahooPlayer(playerDataArray) {
   const p = { pKey: '', pId: '', name: '', team: '', positions: '', status: '', injuryNote: '', keeper: false };
   if (!playerDataArray || !Array.isArray(playerDataArray)) return p;
@@ -203,14 +154,19 @@ function _parseYahooPlayer(playerDataArray) {
     if (!Array.isArray(block)) return;
     block.forEach(item => {
       if (!item) return;
-      if (item.player_key) p.pKey = item.player_key;
-      else if (item.player_id) p.pId = item.player_id.toString();
-      else if (item.name) p.name = item.name.full || '';
-      else if (item.editorial_team_abbr) p.team = item.editorial_team_abbr.toUpperCase();
-      else if (item.status) p.status = item.status;
-      else if (item.injury_note) p.injuryNote = item.injury_note;
-      else if (item.is_keeper && item.is_keeper.status == 1) p.keeper = true;
-      else if (item.eligible_positions) {
+      
+      // FIX: Extracts names safely whether Yahoo returns a string or a nested object
+      if (item.player_key) p.pKey = item.player_key.toString();
+      if (item.player_id) p.pId = item.player_id.toString();
+      if (item.name) {
+        if (typeof item.name === 'string') p.name = item.name.trim();
+        else if (item.name.full) p.name = item.name.full.trim();
+      }
+      if (item.editorial_team_abbr) p.team = item.editorial_team_abbr.toUpperCase().trim();
+      if (item.status) p.status = item.status.trim();
+      if (item.injury_note) p.injuryNote = item.injury_note.trim();
+      if (item.is_keeper && item.is_keeper.status == 1) p.keeper = true;
+      if (item.eligible_positions) {
         p.positions = item.eligible_positions.map(pos => pos.position).filter(Boolean).join(', ');
       }
     });
@@ -218,11 +174,6 @@ function _parseYahooPlayer(playerDataArray) {
   return p;
 }
 
-/**
- * Parses raw Yahoo position string to strip IL/NA and return boolean flags.
- * @param {string} eligibilityString - e.g., 'C, 1B, IL'
- * @returns {Object} Clean positions and boolean flags.
- */
 function _parsePositions(eligibilityString) {
   if (!eligibilityString) return { cleanPositions: '', isIL: false, isNA: false };
   const parts = eligibilityString.split(',').map(s => s.trim()).filter(Boolean);
@@ -237,12 +188,6 @@ function _parsePositions(eligibilityString) {
 //  ERROR LOGGING & UTILITIES
 // ============================================================================
 
-/**
- * Writes an error to Row 4 of the 'Error Log' display sheet.
- * @param {string} scriptName - Name of the script generating the error.
- * @param {string} errorMessage - Description of the failure.
- * @param {string} severity - 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'.
- */
 function _logError(scriptName, errorMessage, severity) {
   const ss = getPrimarySS();
   let sheet = ss.getSheetByName('Error Log');
@@ -257,10 +202,6 @@ function _logError(scriptName, errorMessage, severity) {
   sheet.getRange('A4:D4').setValues([[new Date(), scriptName, errorMessage, severity]]);
 }
 
-/**
- * Stamps the current time in a specified Named Range.
- * @param {string} namedRange - e.g., 'UPDATE_HOURLY'
- */
 function _updateTimestamp(namedRange) {
   const range = getPrimarySS().getRangeByName(namedRange);
   if (range) {
@@ -269,9 +210,6 @@ function _updateTimestamp(namedRange) {
   }
 }
 
-/**
- * Counts total allocated cells across all workbooks and logs them to named ranges.
- */
 function _spreadsheetCounts() {
   const targets = [
     { workbook: getPrimarySS(), rangeName: 'COUNT_CELLS_PRIMARY' },

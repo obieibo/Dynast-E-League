@@ -15,7 +15,7 @@
  */
 function triggerHourly() {
   if (!_isUpdateEnabled()) return;
-  //runCommonUpdates();
+  runCommonUpdates();
   _updateTimestamp('UPDATE_HOURLY');
 }
 
@@ -25,7 +25,7 @@ function triggerHourly() {
  */
 function triggerOnOpen() {
   if (!_isUpdateEnabled()) return;
-  //runCommonUpdates();
+  runCommonUpdates();
 }
 
 /**
@@ -34,7 +34,7 @@ function triggerOnOpen() {
  */
 function triggerDaily() {
   if (!_isUpdateEnabled()) return;
-  //runOccasionalUpdates();
+  runOccasionalUpdates();
   _updateTimestamp('UPDATE_DAILY');
 }
 
@@ -44,7 +44,7 @@ function triggerDaily() {
  */
 function triggerWeekly() {
   if (!_isUpdateEnabled()) return;
-  //runWeeklyUpdates();
+  runWeeklyUpdates();
   _updateTimestamp('UPDATE_WEEKLY');
 }
 

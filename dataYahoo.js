@@ -10,11 +10,6 @@
 //  YAHOO LEAGUE INFO
 // ============================================================================
 
-/**
- * Fetches current league settings from Yahoo and writes a flat reference table.
- * Uses exact Yahoo API keys for the Category column.
- * @writesTo _LEAGUE_INFO
- */
 function updateYahooLeagueInfo() {
   const leagueKey = _getLeagueKey();
   if (!leagueKey) return;
@@ -32,7 +27,6 @@ function updateYahooLeagueInfo() {
   const outputRows = [['CATEGORY', 'SETTING', 'VALUE', 'TYPE', 'ID', 'FLAG']];
   const complexKeys = ['roster_positions', 'stat_categories', 'stat_modifiers', 'divisions'];
 
-  // 1. League Info (Raw key: 'league')
   Object.keys(basicInfo).forEach(key => {
     const val = basicInfo[key];
     if (val === null || typeof val !== 'object') {
@@ -42,7 +36,6 @@ function updateYahooLeagueInfo() {
     }
   });
 
-  // 2. General Settings (Raw key: 'settings')
   Object.keys(settings).forEach(key => {
     const val = settings[key];
     if (val === null || typeof val !== 'object') {
@@ -52,7 +45,6 @@ function updateYahooLeagueInfo() {
     }
   });
 
-  // 3. Roster Positions (Raw key: 'roster_positions')
   if (settings.roster_positions) {
     settings.roster_positions.forEach(item => {
       const pos = item.roster_position;
@@ -60,7 +52,6 @@ function updateYahooLeagueInfo() {
     });
   }
 
-  // 4. Stat Categories (Raw key: 'stat_categories')
   if (settings.stat_categories?.stats) {
     settings.stat_categories.stats.forEach(item => {
       const stat = item.stat;
@@ -68,7 +59,6 @@ function updateYahooLeagueInfo() {
     });
   }
 
-  // 5. Stat Modifiers (Raw key: 'stat_modifiers')
   if (settings.stat_modifiers?.stats) {
     settings.stat_modifiers.stats.forEach(item => {
       const stat = item.stat;
@@ -76,7 +66,6 @@ function updateYahooLeagueInfo() {
     });
   }
 
-  // 6. Divisions (Raw key: 'divisions')
   if (settings.divisions) {
     settings.divisions.forEach(item => {
       const div = item.division;
@@ -92,10 +81,6 @@ function updateYahooLeagueInfo() {
 //  YAHOO STANDINGS
 // ============================================================================
 
-/**
- * Fetches current standings from Yahoo.
- * @writesTo _STANDINGS
- */
 function updateYahooStandings() {
   const leagueKey = _getLeagueKey();
   if (!leagueKey) return;
@@ -106,7 +91,6 @@ function updateYahooStandings() {
   const standingsDict = data.fantasy_content?.league?.[1]?.standings?.[0]?.teams;
   if (!standingsDict) return;
 
-  // Schema: RANK, TEAM_ID, MANAGER_ID, ROSTER, W, L, T, PCT, GB
   const outputRows = [['RANK', 'TEAM_ID', 'MANAGER_ID', 'ROSTER', 'W', 'L', 'T', 'PCT', 'GB']];
   
   for (let i = 0; i < standingsDict.count; i++) {
@@ -136,10 +120,6 @@ function updateYahooStandings() {
 //  YAHOO TEAM STATS
 // ============================================================================
 
-/**
- * Fetches cumulative season stats for all teams.
- * @writesTo _TEAM_STATS
- */
 function updateYahooTeamStats() {
   const leagueKey = _getLeagueKey();
   if (!leagueKey) return;
@@ -161,7 +141,6 @@ function updateYahooTeamStats() {
   const firstTeamStats = teamsDict['0']?.team?.find(item => item?.team_stats)?.team_stats?.stats || [];
   const statHeaders = firstTeamStats.map(s => statMap[s.stat.stat_id] || `Stat_${s.stat.stat_id}`);
   
-  // Schema: TEAM_ID, MANAGER_ID, ROSTER, [STAT_COLS...]
   const outputRows = [['TEAM_ID', 'MANAGER_ID', 'ROSTER', ...statHeaders]];
 
   for (let i = 0; i < teamsDict.count; i++) {
@@ -185,15 +164,10 @@ function updateYahooTeamStats() {
 //  YAHOO MATCHUPS
 // ============================================================================
 
-/**
- * Fetches all weekly matchup results and merges into existing log.
- * @writesTo _MATCHUPS
- */
 function updateYahooMatchups() {
   const leagueKey = _getLeagueKey();
   if (!leagueKey) return;
 
-  // 1. Get current week and stat map
   const lgData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}?format=json`);
   const setData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/settings?format=json`);
   if (!lgData || !setData) return;
@@ -203,14 +177,12 @@ function updateYahooMatchups() {
   const statMap = {};
   if (categories) categories.forEach(s => statMap[s.stat.stat_id] = s.stat.display_name);
 
-  // 2. Fetch all weeks
   const urls = [];
   for (let w = 1; w <= currentWeek; w++) {
     urls.push(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/scoreboard;week=${w}?format=json`);
   }
   const responses = _fetchAllYahooAPI(urls);
 
-  // 3. Load existing to merge
   const sheet = getDataSS()?.getSheetByName('_MATCHUPS');
   const existingData = sheet && sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [];
   const mergedData = existingData.length > 0 ? existingData.map(r => [...r]) : [];
@@ -218,10 +190,9 @@ function updateYahooMatchups() {
   
   const rowMap = {};
   for (let i = 1; i < existingData.length; i++) {
-    rowMap[`${existingData[i][0]}_${existingData[i][2]}`] = i; // Key: WEEK_TEAMID
+    rowMap[`${existingData[i][0]}_${existingData[i][2]}`] = i; 
   }
 
-  // 4. Parse & Merge
   responses.forEach(data => {
     const matchups = data?.fantasy_content?.league?.[1]?.scoreboard?.['0']?.matchups;
     if (!matchups) return;
@@ -262,7 +233,6 @@ function updateYahooMatchups() {
         });
 
         if (!headersSet) {
-          // Schema: WEEK, MATCHUP_ID, TEAM_ID, MANAGER_ID, ROSTER, TEAM_ID_2, MANAGER_ID_2, ROSTER_2, RESULT, SCORE, [STAT_COLS...]
           const statHeaders = stats.map(s => statMap[s.stat?.stat_id] || `Stat_${s.stat?.stat_id}`);
           mergedData.unshift(['WEEK', 'MATCHUP_ID', 'TEAM_ID', 'MANAGER_ID', 'ROSTER', 'TEAM_ID_2', 'MANAGER_ID_2', 'ROSTER_2', 'RESULT', 'SCORE', ...statHeaders]);
           headersSet = true;
@@ -288,25 +258,18 @@ function updateYahooMatchups() {
 //  YAHOO MANAGERS (ARCHIVE & DISPLAY)
 // ============================================================================
 
-/**
- * Updates the visual 'Managers' sheet (current + previous year) and 
- * the _MANAGERS archive sheet (full history). Preserves manual inputs.
- * @writesTo Managers (Primary), _MANAGERS (Archive)
- */
 function updateYahooManagers() {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName('CURRENT_YEAR')?.getValue(), 10);
   const keysRange = ss.getRangeByName('LEAGUE_KEYS_HISTORY');
   if (!currentYear || !keysRange) return;
 
-  // 1. Gather all Keys
   const keyMap = {};
   keysRange.getValues().forEach(row => {
     if (row[0] && row[2]) keyMap[parseInt(row[0])] = row[2].toString().trim();
   });
   keyMap[currentYear] = _getLeagueKey();
 
-  // 2. Load existing Manual Overrides (Abbreviation & Manager Name)
   const displaySheet = ss.getSheetByName('Managers');
   const existingData = displaySheet && displaySheet.getLastRow() >= 4 ? displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 9).getValues() : [];
   
@@ -316,7 +279,6 @@ function updateYahooManagers() {
     if (yr && tId) manualOverrides[`${yr}_${tId}`] = { abbr: abbr || '', mName: mName || '' };
   });
 
-  // 3. Fetch all teams across all years
   const allRows = [];
   Object.keys(keyMap).sort((a,b) => a - b).forEach(year => {
     const data = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${keyMap[year]}/teams?format=json`);
@@ -332,7 +294,6 @@ function updateYahooManagers() {
       const mId = teamArr.find(item => item?.managers)?.managers?.[0]?.manager?.manager_id || '';
       const logoUrl = teamArr.find(item => item?.team_logos)?.team_logos?.[0]?.team_logo?.url || '';
 
-      // Carry forward manager name from previous year if missing in current
       let abbr = manualOverrides[`${year}_${tId}`]?.abbr || '';
       let mName = manualOverrides[`${year}_${tId}`]?.mName || '';
       if (!mName && manualOverrides[`${year-1}_${tId}`]) mName = manualOverrides[`${year-1}_${tId}`].mName;
@@ -341,7 +302,6 @@ function updateYahooManagers() {
     }
   });
 
-  // 4. Generate Short Names (Globally)
   const allNames = [...new Set(allRows.map(r => r.mName).filter(Boolean))];
   const shortNameMap = {};
   const parsedNames = allNames.map(full => {
@@ -361,14 +321,10 @@ function updateYahooManagers() {
 
   allRows.forEach(r => r.shortName = r.mName ? (shortNameMap[r.mName] || r.mName) : '');
 
-  // 5. Build Archive Data (All Years)
-  // Schema: YEAR, TEAM_ID, MANAGER_ID, ROSTER, ABBREVIATION, MANAGER, SHORT NAME, LOGO_URL
   const archiveOutput = [['YEAR', 'TEAM_ID', 'MANAGER_ID', 'ROSTER', 'ABBREVIATION', 'MANAGER', 'SHORT NAME', 'LOGO_URL']];
   allRows.forEach(r => archiveOutput.push([r.year, r.tId, r.mId, r.tName, r.abbr, r.mName, r.shortName, r.logoUrl]));
   writeToArchive('_MANAGERS', archiveOutput);
 
-  // 6. Build Display Data (Current + Prev Year Only)
-  // Schema: YEAR, LOGO, ROSTER, ABBREVIATION, MANAGER, SHORT NAME, TEAM_ID, MANAGER_ID, LOGO_URL
   const displayOutput = [];
   allRows.filter(r => r.year === currentYear || r.year === currentYear - 1)
          .sort((a,b) => b.year - a.year || parseInt(a.tId) - parseInt(b.tId))
@@ -378,7 +334,6 @@ function updateYahooManagers() {
     if (displaySheet.getLastRow() >= 4) displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 9).clearContent();
     displaySheet.getRange(4, 1, displayOutput.length, 9).setValues(displayOutput);
     
-    // Write CellImages to Col B
     const imageValues = displayOutput.map(row => {
       const url = row[8];
       try { return url ? [SpreadsheetApp.newCellImage().setSourceUrl(url).build()] : ['']; } 
@@ -394,17 +349,12 @@ function updateYahooManagers() {
 //  YAHOO PLAYERS (UNIVERSE)
 // ============================================================================
 
-/**
- * Fetches the entire Yahoo player pool (Rostered, FA, Waivers).
- * @writesTo _PLAYERS
- */
 function updateYahooPlayers() {
   const leagueKey = _getLeagueKey();
   if (!leagueKey) return;
 
   const maps = getPlayerMaps('YAHOOID');
   
-  // Build Team Map for Ownership details
   const tData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/teams?format=json`);
   const tMap = {};
   if (tData?.fantasy_content?.league?.[1]?.teams) {
@@ -418,7 +368,6 @@ function updateYahooPlayers() {
     }
   }
 
-  // Schema: IDPLAYER, YAHOOID, PLAYER, TEAM, ELIGIBILITY, POSITION, IL, NA, TAG, INJURY_NOTE, STATUS, TEAM_ID, MANAGER_ID, ROSTER
   const outputRows = [['IDPLAYER', 'YAHOOID', 'PLAYER', 'TEAM', 'ELIGIBILITY', 'POSITION', 'IL', 'NA', 'TAG', 'INJURY_NOTE', 'STATUS', 'TEAM_ID', 'MANAGER_ID', 'ROSTER']];
   let start = 0, done = false;
 
@@ -441,7 +390,6 @@ function updateYahooPlayers() {
 
         const p = _parseYahooPlayer(rawP);
         const { cleanPositions, isIL, isNA } = _parsePositions(p.positions);
-        // resolvePrimaryId(maps, platformId, mlbId, fgId, name, source, team)
         const primaryId = resolvePrimaryId(maps, p.pId, null, null, p.name, 'updateYahooPlayers', p.team);
 
         let status = 'Free Agent', tId = '', mId = '', rName = '';
@@ -466,16 +414,13 @@ function updateYahooPlayers() {
 
   writeToData('_PLAYERS', outputRows);
   _updateTimestamp('UPDATE_PLAYERS');
+  flushIdMatchingQueue();
 }
 
 // ============================================================================
 //  YAHOO TRANSACTIONS
 // ============================================================================
 
-/**
- * Fetches transactions and prepends new ones to the ledger.
- * @writesTo _TRANSACTIONS
- */
 function updateYahooTransactions() {
   const leagueKey = _getLeagueKey();
   if (!leagueKey) return;
@@ -483,7 +428,6 @@ function updateYahooTransactions() {
   const maps = getPlayerMaps('YAHOOID');
   const timeZone = Session.getScriptTimeZone();
 
-  // 1. Build Team Map
   const tData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/teams?format=json`);
   const tMap = {};
   if (tData?.fantasy_content?.league?.[1]?.teams) {
@@ -496,16 +440,13 @@ function updateYahooTransactions() {
     }
   }
 
-  // 2. Load existing keys for deduplication
   const sheet = getDataSS()?.getSheetByName('_TRANSACTIONS');
-  // Schema: TRANS_ID, DATE, TIME, TEAM_ID, MANAGER_ID, ROSTER, TEAM_ID_2, MANAGER_ID_2, ROSTER_2, ACTION, IDPLAYER, YAHOOID, PLAYER, TEAM
   const existingData = sheet && sheet.getLastRow() > 0 ? sheet.getDataRange().getDisplayValues() : [['TRANS_ID', 'DATE', 'TIME', 'TEAM_ID', 'MANAGER_ID', 'ROSTER', 'TEAM_ID_2', 'MANAGER_ID_2', 'ROSTER_2', 'ACTION', 'IDPLAYER', 'YAHOOID', 'PLAYER', 'TEAM']];
   const existingKeys = new Set();
   for (let i = 1; i < existingData.length; i++) {
-    existingKeys.add(`${existingData[i][0]}|${existingData[i][11]}|${existingData[i][9]}`); // TRANS_ID | YAHOOID | ACTION
+    existingKeys.add(`${existingData[i][0]}|${existingData[i][11]}|${existingData[i][9]}`); 
   }
 
-  // 3. Fetch Pages
   const newRows = [];
   let start = 0;
   for (let page = 0; page < 15; page++) {
@@ -581,23 +522,19 @@ function updateYahooTransactions() {
     writeToData('_TRANSACTIONS', finalData);
   }
   _updateTimestamp('UPDATE_TRANSACTIONS');
+  flushIdMatchingQueue();
 }
 
 // ============================================================================
 //  YAHOO DRAFT
 // ============================================================================
 
-/**
- * Fetches current season draft results.
- * @writesTo _DRAFT, Draft (Display)
- */
 function updateYahooDraft() {
   const ss = getPrimarySS();
   const currentYear = ss.getRangeByName('CURRENT_YEAR')?.getValue();
   const leagueKey = _getLeagueKey();
   if (!leagueKey || !currentYear) return;
 
-  // Fetch Metadata & Picks
   const urlTeams = `https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/teams?format=json`;
   const urlPicks = `https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/draftresults?format=json`;
   const [teamData, draftData] = _fetchAllYahooAPI([urlTeams, urlPicks]);
@@ -622,7 +559,6 @@ function updateYahooDraft() {
 
   if (rawPicks.length === 0) return;
 
-  // Batch Fetch Players
   const pUrls = [];
   for (let i = 0; i < rawPicks.length; i += 25) {
     const keys = rawPicks.slice(i, i + 25).map(r => r.pKey).join(',');
@@ -645,7 +581,6 @@ function updateYahooDraft() {
   const maps = getPlayerMaps('YAHOOID');
   const numTeams = teams.count;
   
-  // Schema: ROUND, PICK, OVERALL, ADJUSTED, TEAM_ID, MANAGER_ID, ROSTER, KEEPER, IDPLAYER, YAHOOID, PLAYER, TEAM, ELIGIBILITY, POSITION, IL, NA
   const dataRows = [['ROUND', 'PICK', 'OVERALL', 'ADJUSTED', 'TEAM_ID', 'MANAGER_ID', 'ROSTER', 'KEEPER', 'IDPLAYER', 'YAHOOID', 'PLAYER', 'TEAM', 'ELIGIBILITY', 'POSITION', 'IL', 'NA']];
   const displayRows = [];
   let adjCount = 1;
@@ -679,17 +614,13 @@ function updateYahooDraft() {
     displaySheet.getRange(4, 1, displayRows.length, 13).sort({column: 3, ascending: true});
   }
   _updateTimestamp('UPDATE_DRAFTS');
+  flushIdMatchingQueue();
 }
 
 // ============================================================================
 //  YAHOO ROSTERS
 // ============================================================================
 
-/**
- * Fetches all rostered players across all fantasy teams.
- * Calculates KEEPER, ROUND, ACQUIRED, and DATE properties in-memory.
- * @writesTo _ROSTERS
- */
 function updateYahooRosters() {
   const ss = getPrimarySS();
   const leagueKey = _getLeagueKey();
@@ -700,12 +631,10 @@ function updateYahooRosters() {
 
   const maps = getPlayerMaps('YAHOOID');
 
-  // Load Dependencies
   const dataSS = getDataSS();
   const draftMap = {}, transMap = {}, acqMap = {}, abbrMap = {};
   
   if (dataSS) {
-    // 1. Current Season Draft Map
     const dSheet = dataSS.getSheetByName('_DRAFT');
     if (dSheet && dSheet.getLastRow() > 1) {
       const dData = dSheet.getDataRange().getValues();
@@ -718,7 +647,6 @@ function updateYahooRosters() {
       }
     }
 
-    // 2. Transactions Map (Recent player movement)
     const tSheet = dataSS.getSheetByName('_TRANSACTIONS');
     if (tSheet && tSheet.getLastRow() > 1) {
       const tData = tSheet.getDataRange().getDisplayValues();
@@ -734,7 +662,6 @@ function updateYahooRosters() {
       }
     }
 
-    // 3. Persistent Acquired Map (History and saved Rounds)
     const aSheet = dataSS.getSheetByName('_ACQUIRED');
     if (aSheet && aSheet.getLastRow() > 1) {
       const aData = aSheet.getDataRange().getDisplayValues();
@@ -747,7 +674,7 @@ function updateYahooRosters() {
             acqMap[aData[i][iId]] = { 
               via: aData[i][iVia], 
               date: aData[i][iDate],
-              round: aData[i][iRnd] // Fixed: Now capturing the round from historical records
+              round: aData[i][iRnd]
             };
           }
         }
@@ -755,7 +682,6 @@ function updateYahooRosters() {
     }
   }
 
-  // 4. Managers Abbr Map for source identification
   const mSheet = ss.getSheetByName('Managers');
   if (mSheet && mSheet.getLastRow() >= 4) {
     const mData = mSheet.getRange(4, 1, mSheet.getLastRow() - 3, 7).getValues();
@@ -768,7 +694,6 @@ function updateYahooRosters() {
     });
   }
 
-  // Fetch Current Yahoo Roster Data
   const rData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/teams;out=roster/players?format=json`);
   const teamsDict = rData?.fantasy_content?.league?.[1]?.teams;
   if (!teamsDict) return;
@@ -801,15 +726,14 @@ function updateYahooRosters() {
       const primaryId = resolvePrimaryId(maps, pObj.pId, null, null, pObj.name, 'updateYahooRosters', pObj.team);
       const { cleanPositions, isIL, isNA } = _parsePositions(pObj.positions);
 
-      const trans = transMap[primaryId] || {};
+      const trans = primaryId ? (transMap[primaryId] || {}) : {};
       const tType = trans.type || '';
       const tDate = trans.date || '';
-      const sourceAbbr = abbrMap[trans.sourceTeamId] || abbrMap[trans.sourceTeam] || trans.sourceTeam;
+      const sourceAbbr = trans.sourceTeamId ? abbrMap[trans.sourceTeamId] : (abbrMap[trans.sourceTeam] || trans.sourceTeam);
 
-      const acq = acqMap[primaryId] || {};
+      const acq = primaryId ? (acqMap[primaryId] || {}) : {};
       let aVia = '', aDate = '';
 
-      // Determine Acquisition string
       if (pObj.keeper) {
         aVia = acq.via || (`${currentYear - 1} Draft`);
         aDate = acq.via ? acq.date : '';
@@ -820,7 +744,11 @@ function updateYahooRosters() {
         }
         if (aVia.toUpperCase().startsWith('TRADE')) aVia = aVia.replace(/Trade \((.*?)\)/i, 'Trade w/ $1');
       } else {
-        if (tType === '') aVia = `${currentYear} Draft`;
+        if (tType === '') {
+          // FIX: Only label them as "Draft" if they actually exist in the current year's draft map.
+          // Otherwise, if they have no transaction history and weren't drafted, they are a Free Agent.
+          aVia = (primaryId && draftMap[primaryId]) ? `${currentYear} Draft` : 'Free Agency';
+        }
         else if (tType.toUpperCase() === 'TRADE') { 
           aVia = sourceAbbr ? `Trade w/ ${sourceAbbr}` : 'Trade'; 
           aDate = tDate; 
@@ -830,15 +758,22 @@ function updateYahooRosters() {
         }
       }
 
-      // ROUND CALCULATION LOGIC
-      // 1. Check if the player is a Free Agent/Waiver add this season
-      const isFA = ['free', 'waiv', 'add'].some(kw => tType.toLowerCase().includes(kw) || aVia.toLowerCase().includes(kw));
-      
-      // 2. Fetch round from persistent records if not in the current draft
-      const savedRound = acqMap[primaryId]?.round ? parseInt(acqMap[primaryId].round) : null;
-      
-      // 3. Priority: FA Default -> Current Draft -> Historical Draft -> FA Default fallback
-      const round = isFA ? faRound : (draftMap[primaryId] || savedRound || faRound);
+      let savedRound = null;
+      if (primaryId && acqMap[primaryId]?.round) {
+        const parsed = parseInt(acqMap[primaryId].round, 10);
+        if (!isNaN(parsed)) savedRound = parsed;
+      }
+
+      let round;
+      if (pObj.keeper) {
+        round = savedRound || faRound;
+      } else if (primaryId && draftMap[primaryId]) {
+        round = draftMap[primaryId];
+      } else if (tType.toUpperCase() === 'TRADE' || aVia.toUpperCase().includes('TRADE')) {
+        round = savedRound || faRound;
+      } else {
+        round = faRound;
+      }
 
       outputRows.push([tId, mId, rName, primaryId, pObj.pId, pObj.name, pObj.team, pObj.positions, cleanPositions, isIL, isNA, pObj.keeper, round, aVia, aDate]);
     }
@@ -846,4 +781,5 @@ function updateYahooRosters() {
 
   writeToData('_ROSTERS', outputRows);
   _updateTimestamp('UPDATE_ROSTERS');
+  flushIdMatchingQueue();
 }
