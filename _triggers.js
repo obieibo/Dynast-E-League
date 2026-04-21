@@ -93,7 +93,7 @@ function runCommonUpdates() {
  */
 function runOccasionalUpdates1() {
   updateFantasyProsRankings();
-  updateBaseballSavantPercentiles();
+  updateBaseballSavantData();
   updateFanGraphsBatting();
   updateFanGraphsPitching();
   
