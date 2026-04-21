@@ -598,10 +598,12 @@ function updateYahooDraft() {
 
     displayRows.push([
       pick.round, pick.pick - ((pick.round - 1) * numTeams), pick.pick, p.keeper ? '' : (adjCount - 1),
-      rName, `=IFERROR(FILTER(MANAGERS_LOGO, MANAGERS_YEAR=${currentYear}, MANAGERS_TEAM_ID=${tId}), "")`, rName,
-      p.keeper ? '=ICON_K' : '', p.name,
-      p.team ? `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${p.team}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(${currentYear}, MLB_TEAM_YEARS, 0)), "${p.team}")` : '',
-      cleanPositions, isIL ? '=ICON_IL' : '', isNA ? '=ICON_NA' : ''
+      `=XLOOKUP(${mId}, MANAGERS_MANAGER_ID, MANAGERS_SHORT_NAME, "")`,
+      `=INDEX(ICON_TEAM_LOGOS, MATCH(${tId}, CHOOSECOLS(ICON_TEAM_LOGOS, 1), 0), IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), 4, 3))`, 
+      rName,
+      p.keeper ? '=IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), ICON_K_LIGHT, ICON_K)' : '', p.name,
+      p.team ? `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${p.team}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(${currentYear}, MLB_TEAM_YEARS, 0) + IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), 1, 0)), "${p.team}")` : '',
+      cleanPositions, isIL ? '=IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), ICON_IL_LIGHT, ICON_IL)' : '', isNA ? '=IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), ICON_NA_LIGHT, ICON_NA)' : ''
     ]);
   });
 

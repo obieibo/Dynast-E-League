@@ -10,6 +10,15 @@
 // ============================================================================
 
 /**
+ * On-open trigger entry point.
+ * Runs common core Yahoo data on spreadsheet load.
+ */
+function triggerOnOpen() {
+  if (!_isUpdateEnabled()) return;
+  runCommonUpdates();
+}
+
+/**
  * Hourly trigger entry point.
  * Runs common core Yahoo data.
  */
@@ -20,22 +29,23 @@ function triggerHourly() {
 }
 
 /**
- * On-open trigger entry point.
- * Runs common core Yahoo data on spreadsheet load.
+ * Daily trigger entry point - PART 1
+ * Runs external data sources (Stats, Percentiles, Rankings).
  */
-function triggerOnOpen() {
+function triggerDaily1() {
   if (!_isUpdateEnabled()) return;
-  runCommonUpdates();
+  runOccasionalUpdates1();
+  _updateTimestamp('UPDATE_DAILY_1');
 }
 
 /**
- * Daily trigger entry point.
- * Runs external data sources (FanGraphs, Savant, FantasyPros).
+ * Daily trigger entry point - PART 2
+ * Runs heavy FanGraphs Projections, Prospects, and local sheet resolutions.
  */
-function triggerDaily() {
+function triggerDaily2() {
   if (!_isUpdateEnabled()) return;
-  runOccasionalUpdates();
-  _updateTimestamp('UPDATE_DAILY');
+  runOccasionalUpdates2();
+  _updateTimestamp('UPDATE_DAILY_2');
 }
 
 /**
@@ -71,8 +81,7 @@ function runCommonUpdates() {
   updateYahooManagers();     
   
   // 4. Utilities (Depends on Rosters)
-  saveAcquiredData();        
-  optimizeActiveLineups();   
+  saveAcquiredData();          
   
   // 5. Cleanup
   _spreadsheetCounts();      
@@ -80,13 +89,22 @@ function runCommonUpdates() {
 }
 
 /**
- * Occasional updates: External statistical data. Order independent.
+ * Occasional updates Part 1: External statistical data and rankings.
  */
-function runOccasionalUpdates() {
+function runOccasionalUpdates1() {
   updateFantasyProsRankings();
   updateBaseballSavantPercentiles();
   updateFanGraphsBatting();
   updateFanGraphsPitching();
+  
+  _spreadsheetCounts();
+  flushIdMatchingQueue();
+}
+
+/**
+ * Occasional updates Part 2: Projections, Prospects, and internal sheet resolutions.
+ */
+function runOccasionalUpdates2() {
   updateFanGraphsBattingProjections();
   updateFanGraphsPitchingProjections();
   updateFanGraphsProspects();
@@ -132,8 +150,11 @@ function _isUpdateEnabled() {
 /** Manually run Common updates bypassing toggle. */
 function runCommonUpdatesNow() { runCommonUpdates(); }
 
-/** Manually run Occasional updates bypassing toggle. */
-function runOccasionalUpdatesNow() { runOccasionalUpdates(); }
+/** Manually run Occasional updates Part 1 bypassing toggle. */
+function runOccasionalUpdatesPart1Now() { runOccasionalUpdatesPart1(); }
+
+/** Manually run Occasional updates Part 2 bypassing toggle. */
+function runOccasionalUpdatesPart2Now() { runOccasionalUpdatesPart2(); }
 
 /** Manually run Weekly updates bypassing toggle. */
 function runWeeklyUpdatesNow() { runWeeklyUpdates(); }

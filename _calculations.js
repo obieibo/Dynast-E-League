@@ -30,7 +30,7 @@ function buildBlendedProjections() {
   const systemWeights = {};
   weightData.forEach(row => {
     const sysName = row[0]?.toString().trim();
-    const sysWeight = parseFloat(row[1]);
+    const sysWeight = parseFloat(row[2]);
     if (sysName && !isNaN(sysWeight)) systemWeights[sysName] = sysWeight;
   });
 

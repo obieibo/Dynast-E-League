@@ -105,7 +105,6 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
     anyData = true;
 
     resp.data.forEach(row => {
-      // Use fallback keys just in case FanGraphs changes the leaderboard API
       const fgIdRaw = row.playerid || row.playerids || row.PlayerId;
       const fgId = fgIdRaw ? fgIdRaw.toString() : null;
       if (!fgId) return;
@@ -128,6 +127,7 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
     const fgIdRaw = row.playerid || row.playerids || row.PlayerId;
     const fgId = fgIdRaw ? fgIdRaw.toString() : "";
     
+    // SAFE MLB ID CHECK: Correctly extracts mlbamid and assigns it to 'mlbId' variable to prevent ReferenceErrors
     const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
     const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
     
@@ -136,6 +136,7 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
     const pName = pNameRaw.toString().replace(/<[^>]+>/g, '').trim();
     const teamAbbr = pTeamRaw.toString().replace(/<[^>]+>/g, '').trim();
     
+    // Calls resolver using strictly 'mlbId' (never mlbamId)
     const primaryId = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, 'updateFanGraphsStats', teamAbbr);
 
     const dataRow = targetSchema.map(col => {
@@ -169,25 +170,26 @@ function _readFgYear(sheet) {
 const FG_PROJ_BASE_URL = 'https://www.fangraphs.com/api/projections';
 
 const FG_BAT_PROJ_GROUPS = {
-  "Steamer":      [{ id: "steamer", type: "Pre-Season" }, { id: "steamerr", type: "ROS" }],
-  "ZiPS":         [{ id: "zips", type: "Pre-Season" }, { id: "rzips", type: "ROS" }],
-  "Depth_Charts": [{ id: "fangraphsdc", type: "Pre-Season" }, { id: "rfangraphsdc", type: "ROS" }],
   "ATC":          [{ id: "atc", type: "Pre-Season" }, { id: "ratcdc", type: "ROS" }],
-  "THE_BAT":      [{ id: "thebat", type: "Pre-Season" }, { id: "rthebat", type: "ROS" }],
-  "THE_BAT_X":    [{ id: "thebatx", type: "Pre-Season" }, { id: "rthebatx", type: "ROS" }],
-  "ZiPS_DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }],
-  "OOPSY":        [{ id: "oopsy", type: "Pre-Season" }, { id: "roopsydc", type: "ROS" }]
+  "Depth Charts": [{ id: "fangraphsdc", type: "Pre-Season" }, { id: "rfangraphsdc", type: "ROS" }],
+  "OOPSY":        [{ id: "oopsy", type: "Pre-Season" }, { id: "roopsydc", type: "ROS" }],
+  "Steamer":      [{ id: "steamer", type: "Pre-Season" }, { id: "steamerr", type: "ROS" }],
+  "THE BAT":      [{ id: "thebat", type: "Pre-Season" }, { id: "rthebat", type: "ROS" }],
+  "THE BAT X":    [{ id: "thebatx", type: "Pre-Season" }, { id: "rthebatx", type: "ROS" }],
+  "ZiPS":         [{ id: "zips", type: "Pre-Season" }, { id: "rzips", type: "ROS" }],
+  "ZiPS DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }]
+
 };
 
 const FG_PITCH_PROJ_GROUPS = {
-  "Steamer":      [{ id: "steamer", type: "Pre-Season" }, { id: "steamerr", type: "ROS" }],
-  "ZiPS":         [{ id: "zips", type: "Pre-Season" }, { id: "rzips", type: "ROS" }],
-  "Depth_Charts": [{ id: "fangraphsdc", type: "Pre-Season" }, { id: "rfangraphsdc", type: "ROS" }],
   "ATC":          [{ id: "atc", type: "Pre-Season" }, { id: "ratcdc", type: "ROS" }],
-  "THE_BAT":      [{ id: "thebat", type: "Pre-Season" }, { id: "rthebat", type: "ROS" }],
-  "THE_BAT_X":    [{ id: "thebatx", type: "Pre-Season" }, { id: "rthebatx", type: "ROS" }],
-  "ZiPS_DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }],
-  "OOPSY":        [{ id: "oopsy", type: "Pre-Season" }, { id: "roopsydc", type: "ROS" }]
+  "Depth Charts": [{ id: "fangraphsdc", type: "Pre-Season" }, { id: "rfangraphsdc", type: "ROS" }],
+  "OOPSY":        [{ id: "oopsy", type: "Pre-Season" }, { id: "roopsydc", type: "ROS" }],
+  "Steamer":      [{ id: "steamer", type: "Pre-Season" }, { id: "steamerr", type: "ROS" }],
+  "THE BAT":      [{ id: "thebat", type: "Pre-Season" }, { id: "rthebat", type: "ROS" }],
+  "THE BAT X":    [{ id: "thebatx", type: "Pre-Season" }, { id: "rthebatx", type: "ROS" }],
+  "ZiPS":         [{ id: "zips", type: "Pre-Season" }, { id: "rzips", type: "ROS" }],
+  "ZiPS DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }]
 };
 
 // ============================================================================
@@ -212,7 +214,6 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
   const requestQueue = [];
   const metaQueue = [];
 
-  // STEP 1: Set UI to "Updating" status instantly
   for (let groupName in projGroups) {
     projGroups[groupName].forEach(variant => {
       let rangeName = `UPDATE_${groupName.toUpperCase()}`;
@@ -222,15 +223,12 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
       requestQueue.push(`${FG_PROJ_BASE_URL}?pos=all&stats=${statType}&type=${variant.id}&team=0&players=0&lg=all`);
       metaQueue.push({ groupName, sysType: variant.type, rangeName });
       
-      // Stamp the dashboard with the Loading/Updating icon
-      _setStatusIcon(ss, rangeName, '=ICON_UPDATE_LIGHT');
+      _setStatusIcon(ss, rangeName, '=ICON_UPDATE');
     });
   }
   
-  // Force Google Sheets to visually update the UI immediately before we pause for the download
   SpreadsheetApp.flush();
 
-  // STEP 2: Fetch the data
   const options = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
   const requests = requestQueue.map(url => ({ url: url, ...options }));
   
@@ -239,17 +237,15 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
     responses = UrlFetchApp.fetchAll(requests); 
   } catch (e) { 
     _logError('dataFanGraphs.gs', `Projection Fetch Error: ${e.message}`, 'CRITICAL'); 
-    // Fetch totally failed. Downgrade all to Fail.
     metaQueue.forEach(meta => _setStatusIcon(ss, meta.rangeName, '=ICON_FAIL'));
     return; 
   }
 
   const allObjects = [];
   const allKeys = new Set();
-  const systemStatuses = {}; // Keep track of final statuses to stamp at the end
+  const systemStatuses = {}; 
   let hasValidDataToWrite = false;
 
-  // STEP 3: Process the data
   responses.forEach((response, idx) => {
     const meta = metaQueue[idx];
     const rName = meta.rangeName;
@@ -280,6 +276,7 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
         
         validPlayerCount++;
         
+        // Ensure mlbId is defined identically to avoid ReferenceError
         const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
         const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
         
@@ -308,16 +305,13 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
         systemStatuses[rName] = '=ICON_PASS';
         hasValidDataToWrite = true;
       } else {
-        Logger.log(`Warning: Found JSON for ${meta.groupName}|${meta.sysType} but couldn't find valid player IDs.`);
         systemStatuses[rName] = '=ICON_FAIL';
       }
     } else {
-      // FanGraphs returned empty. Stop updating this system.
       systemStatuses[rName] = '=ICON_PASS_LIGHT';
     }
   });
 
-  // STEP 4: Write & Finalize
   if (hasValidDataToWrite && allObjects.length > 0) {
     allKeys.delete("IDPLAYER");
     allKeys.delete("IDFANGRAPHS");
@@ -334,32 +328,19 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
     
     try {
       writeToData(outputSheet, outputData);
-      
-      // Write succeeded! Now update the overall timestamp & commit all specific icons
       _updateTimestamp(`UPDATE_FG_PROJECTIONS_${typeSuffix}`);
       Object.entries(systemStatuses).forEach(([rName, icon]) => _setStatusIcon(ss, rName, icon));
-      
-      Logger.log(`Successfully pulled and wrote ${outputData.length - 1} projection rows to ${outputSheet}.`);
-      
     } catch(e) {
-      Logger.log(`Failed to write projections to ${outputSheet}. Main timestamp aborted. Error: ${e.message}`);
-      
-      // Failsafe: Write crashed, downgrade any passes to fails so you aren't lied to by the dashboard
       Object.entries(systemStatuses).forEach(([rName, icon]) => {
         if (icon === '=ICON_PASS') _setStatusIcon(ss, rName, '=ICON_FAIL');
         else _setStatusIcon(ss, rName, icon);
       });
     }
   } else {
-    Logger.log(`Finished Projections for ${statType}. No valid data found to write (Systems likely inactive).`);
-    // Output the PASS_LIGHT / FAIL statuses anyway
     Object.entries(systemStatuses).forEach(([rName, icon]) => _setStatusIcon(ss, rName, icon));
   }
 }
 
-/**
- * HELPER: Updates a named range with a specific status formula/icon instead of a timestamp.
- */
 function _setStatusIcon(ss, rangeName, iconFormula) {
   try {
     const range = ss.getRangeByName(rangeName);

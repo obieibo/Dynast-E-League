@@ -77,13 +77,13 @@ function _fetchSavantData(baseUrl, year, maps) {
 
   for (let i = 1; i < csvData.length; i++) {
     const row = csvData[i];
-    const mlbId = iPlayerId !== -1 ? row[iPlayerId] : null;
+    const mlbId = iPlayerId !== -1 ? row[iPlayerId] : null; // Strictly using mlbId
     
     let fullName = '';
     if (iPlayerName !== -1) fullName = row[iPlayerName];
     else if (iFirst !== -1 && iLast !== -1) fullName = `${row[iFirst]} ${row[iLast]}`;
 
-    // FIX: Pass mlbId as platformId
+    // FIX: Pass mlbId as platformId and specifically named 'mlbId' inside the params
     const primaryId = resolvePrimaryId(maps, mlbId, mlbId, null, fullName, 'updateBaseballSavantPercentiles', null);
 
     const newRow = [primaryId, mlbId];
