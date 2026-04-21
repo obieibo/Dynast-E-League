@@ -81,9 +81,9 @@ function saveAcquiredData() {
 // ============================================================================
 
 /**
- * Optimizes the lineup on the 'My Team' dashboard.
- * Uses a strict 6-tier sorting algorithm and named ranges to assign positions.
- * IL and NA players are deprioritized and only assigned if no healthy options exist.
+ * @description Advanced lineup optimization engine. Uses a two-phase allocation 
+ * to ensure IL/NA players (identified by images/non-blank cells) are a last resort.
+ * @dependencies _helpers.gs
  * @writesTo 'My Team' (MY_TEAM_OPTIMIZED)
  */
 function optimizeLineup() {
@@ -91,22 +91,31 @@ function optimizeLineup() {
   const dataSS = getDataSS();
   if (!dataSS) return;
 
-  // 1. Fetch Dynamic Slots from _LEAGUE_INFO
+  // 1. FETCH DYNAMIC SLOTS FROM _LEAGUE_INFO
   const infoSheet = dataSS.getSheetByName("_LEAGUE_INFO");
   if (!infoSheet) {
     _logError('_utilities.gs', 'Missing _LEAGUE_INFO for slot generation.', 'CRITICAL');
     return;
   }
-  const infoData = infoSheet.getRange("A2:C").getValues();
+  
+  // Get positions from A2:D where A = roster_positions, D is not blank
+  const infoData = infoSheet.getRange("A2:D").getValues();
   let slots = [];
   infoData.forEach(row => {
-    if (row[0] === "roster_positions" && row[1] !== "BN" && row[1] !== "") {
-      let count = parseInt(row[2]) || 1;
-      for (let c = 0; c < count; c++) slots.push(row[1]);
+    const posNameRaw = row[1]?.toString().trim();
+    if (row[0] === "roster_positions" && row[3] !== "" && posNameRaw) {
+      // Exclude designated Bench or Injury slots from active assignment targets
+      if (!["BN", "IL", "NA"].includes(posNameRaw.toUpperCase())) {
+        let count = parseInt(row[2]) || 1;
+        for (let c = 0; c < count; c++) {
+          // Store original name from info sheet
+          slots.push(posNameRaw); 
+        }
+      }
     }
   });
 
-  // 2. Fetch Player Data via Named Ranges
+  // 2. FETCH PLAYER DATA VIA NAMED RANGES
   const getVals = (name) => ss.getRangeByName(name)?.getValues() || [];
   const namesData = getVals("MY_TEAM_PLAYER");
   const posData   = getVals("MY_TEAM_POSITION");
@@ -114,7 +123,6 @@ function optimizeLineup() {
   const naData    = getVals("MY_TEAM_NA");
   const valData   = getVals("MY_TEAM_VALUE");
   const kRndData  = getVals("MY_TEAM_K_ROUND");
-  const acqData   = getVals("MY_TEAM_ACQUIRE");
   const outRange  = ss.getRangeByName("MY_TEAM_OPTIMIZED");
 
   if (!namesData.length || !outRange) {
@@ -122,129 +130,114 @@ function optimizeLineup() {
     return;
   }
 
-  // 3. Build Player Objects
+  // 3. BUILD PLAYER OBJECTS & DETECT UNAVAILABILITY (IMAGES)
   let players = [];
   for (let i = 0; i < namesData.length; i++) {
-    let pName = Array.isArray(namesData[i]) ? namesData[i][0] : namesData[i];
+    let pName = namesData[i][0];
     if (!pName) continue;
+
+    const ilVal = ilData[i][0];
+    const naVal = naData[i][0];
+    // Image detection: treated as unavailable if cell is not blank
+    const isUnavail = (ilVal !== "" && ilVal !== null) || (naVal !== "" && naVal !== null);
 
     players.push({
       idx: i, 
       name: pName.toString(),
-      pos: (posData[i]?.[0] || "").toString().split(',').map(p => p.trim()),
-      // Identifies players on IL or NA
-      unavail: (ilData[i]?.[0] === true || naData[i]?.[0] === true || ilData[i]?.[0] === "TRUE"),
-      val: parseFloat(valData[i]?.[0]),
-      kRnd: parseFloat(kRndData[i]?.[0]),
-      acq: (acqData[i]?.[0] || "").toString()
+      // Normalize eligibility to uppercase for internal logic comparisons
+      pos: posData[i][0].toString().split(',').map(p => p.trim().toUpperCase()),
+      unavail: isUnavail,
+      val: parseFloat(valData[i][0]),
+      kRnd: parseFloat(kRndData[i][0])
     });
   }
 
-  // 4. Multi-Tier Sorting Algorithm (Updated)
+  // 4. SORTING LOGIC (Internal Priority)
+  // Value (Desc) -> Keeper Round (Asc) -> Original Row (Asc)
   players.sort((a, b) => {
-    // TIER 0: Availability (New)
-    // Healthy players (unavail: false) sorted before IL/NA players (unavail: true)
-    if (a.unavail !== b.unavail) return a.unavail ? 1 : -1;
-
-    // Tier 1: Value (Desc)
     const vA = !isNaN(a.val) ? a.val : -Infinity;
     const vB = !isNaN(b.val) ? b.val : -Infinity;
     if (vA !== vB) return vB - vA;
 
-    // Tier 2: Keeper Round (Asc)
     const kA = !isNaN(a.kRnd) ? a.kRnd : Infinity;
     const kB = !isNaN(b.kRnd) ? b.kRnd : Infinity;
     if (kA !== kB) return kA - kB;
 
-    // Tier 3: Acquisition Numerical (Asc)
-    const acqNumA = parseFloat(a.acq), acqNumB = parseFloat(b.acq);
-    const hasNumA = !isNaN(acqNumA), hasNumB = !isNaN(acqNumB);
-    if (hasNumA && !hasNumB) return -1;
-    if (!hasNumA && hasNumB) return 1;
-    if (hasNumA && hasNumB && acqNumA !== acqNumB) return acqNumA - acqNumB;
-
-    // Tier 4: Acquisition Text Rank (Trade > FA/W > Other)
-    const getRank = (str) => {
-      const s = str.toLowerCase();
-      if (s.includes('trade')) return 1;
-      if (s === 'fa' || s === 'w' || s.includes('waiver') || s.includes('free')) return 2;
-      return 3;
-    };
-    const rankA = getRank(a.acq), rankB = getRank(b.acq);
-    if (rankA !== rankB) return rankA - rankB;
-
-    // Tier 5: Alphabetical A-Z
-    return a.name.localeCompare(b.name);
+    return a.idx - b.idx;
   });
 
-  // 5. Allocate Slots
+  // 5. TWO-PHASE ALLOCATION ENGINE
   let slotUsed = new Array(slots.length).fill(false);
   let assignments = new Array(namesData.length).fill(["BN"]); 
-  let used = new Set();
+  let usedPlayers = new Set();
 
-  function assign(p, choices) {
+  /**
+   * Helper to assign a player to an open slot.
+   * Performs case-insensitive matching and enforces "Util" casing.
+   */
+  function tryAssign(p, choices) {
+    if (usedPlayers.has(p.idx)) return false;
     for (let target of choices) {
-      let idx = slots.findIndex((s, i) => s === target && !slotUsed[i]);
-      if (idx !== -1) {
-        slotUsed[idx] = true;
-        assignments[p.idx] = [target];
-        used.add(p.name);
+      // Find slot index using case-insensitive match
+      let sIdx = slots.findIndex((s, i) => s.toUpperCase() === target.toUpperCase() && !slotUsed[i]);
+      if (sIdx !== -1) {
+        slotUsed[sIdx] = true;
+        
+        // FIX: Force "Util" casing specifically if the matched slot is Utility
+        let assignedVal = slots[sIdx].toUpperCase() === "UTIL" ? "Util" : slots[sIdx];
+        assignments[p.idx] = [assignedVal]; 
+        
+        usedPlayers.add(p.idx);
         return true;
       }
     }
     return false;
   }
 
-  // ALL PASSES: unavail check removed. Healthy players are handled first due to sorting.
-  
-  // Pass 1-3: Pitchers (Pure RP -> Dual SP/RP -> Pure SP)
-  players.forEach(p => {
-    if (used.has(p.name)) return;
-    const isSP = p.pos.includes("SP"), isRP = p.pos.includes("RP") || p.pos.includes("P");
-    if (isRP && !isSP) assign(p, ["RP", "P"]);
-  });
-  players.forEach(p => {
-    if (used.has(p.name)) return;
-    const isSP = p.pos.includes("SP"), isRP = p.pos.includes("RP") || p.pos.includes("P");
-    if (isRP && isSP) assign(p, ["RP", "P", "SP"]);
-  });
-  players.forEach(p => {
-    if (used.has(p.name)) return;
-    const isSP = p.pos.includes("SP"), isRP = p.pos.includes("RP") || p.pos.includes("P");
-    if (isSP && !isRP) assign(p, ["SP", "P"]);
-  });
+  const executeAllocation = (pool) => {
+    // PASS 1: Fill RP slots first
+    pool.forEach(p => { if (p.pos.includes("RP")) tryAssign(p, ["RP"]); });
 
-  // Pass 4-6: Batters (Strict 1-Pos -> Primary -> Flex)
-  players.forEach(p => {
-    if (used.has(p.name)) return;
-    const isP = p.pos.some(x => ["SP","RP","P"].includes(x));
-    if (!isP && p.pos.length === 1) assign(p, [p.pos[0]]);
-  });
-  players.forEach(p => {
-    if (used.has(p.name)) return;
-    const isP = p.pos.some(x => ["SP","RP","P"].includes(x));
-    if (!isP) assign(p, p.pos);
-  });
-  players.forEach(p => {
-    if (used.has(p.name)) return;
-    const isP = p.pos.some(x => ["SP","RP","P"].includes(x));
-    if (!isP) {
-      let done = false;
-      for (let pos of p.pos) {
-        if (["1B", "3B"].includes(pos)) done = assign(p, ["CI"]);
-        else if (["2B", "SS"].includes(pos)) done = assign(p, ["MI"]);
-        if (done) break;
+    // PASS 2: Place RP eligible into P slots
+    pool.forEach(p => { if (p.pos.includes("RP")) tryAssign(p, ["P"]); });
+
+    // PASS 3: Place SP eligible pitchers into SP slots
+    pool.forEach(p => { if (p.pos.includes("SP")) tryAssign(p, ["SP"]); });
+
+    // PASS 4: Place SP,RP pitchers into any remaining P/SP slots
+    pool.forEach(p => {
+      const isPitcher = p.pos.some(x => ["SP", "RP", "P"].includes(x));
+      if (isPitcher) tryAssign(p, ["P", "SP"]);
+    });
+
+    // PASS 5: Batters into primary positions
+    pool.forEach(p => {
+      const isPitcher = p.pos.some(x => ["SP", "RP", "P"].includes(x));
+      if (!isPitcher) {
+        // Filter out utility to prioritize specific positions first
+        const primaryPos = p.pos.filter(x => x !== "UTIL");
+        tryAssign(p, primaryPos);
       }
-      if (!done) assign(p, ["UTIL"]);
-    }
-  });
+    });
 
-  // Clear blanks
+    // PASS 6: Remaining batters into UTIL
+    pool.forEach(p => {
+      const isPitcher = p.pos.some(x => ["SP", "RP", "P"].includes(x));
+      if (!isPitcher) tryAssign(p, ["UTIL"]);
+    });
+  };
+
+  // PHASE 1: Process Healthy Players (unavail is false)
+  executeAllocation(players.filter(p => !p.unavail));
+
+  // PHASE 2: Fill remaining gaps with Unavailable Players (Images detected)
+  executeAllocation(players.filter(p => p.unavail));
+
+  // 6. FINAL CLEANUP & WRITE
   for (let i = 0; i < namesData.length; i++) {
-    let pName = Array.isArray(namesData[i]) ? namesData[i][0] : namesData[i];
-    if (!pName) assignments[i] = [""];
+    if (!namesData[i][0]) assignments[i] = [""];
   }
   
-  // Write to 'My Team' (MY_TEAM_OPTIMIZED)
   outRange.setValues(assignments);
+  _updateTimestamp('UPDATE_OPTIMIZATION');
 }

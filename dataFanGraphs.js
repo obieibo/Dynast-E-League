@@ -1,8 +1,7 @@
 /**
  * @file dataFanGraphs.gs
  * @description Centralized engine for fetching all FanGraphs data.
- * Includes cumulative season stats (Batting & Pitching), Projections (Steamer, ZiPS, ATC, etc.),
- * and the FanGraphs Prospect Board.
+ * Includes cumulative season stats (Batting & Pitching), Projections, and Prospects.
  * @dependencies _helpers.gs, resolvePlayer.gs
  * @writesTo _FG_B, _FG_P, _FG_PROJ_B, _FG_PROJ_P, _FG_PROSP, and Archive workbook
  */
@@ -13,11 +12,9 @@
 
 const FG_LEADERBOARD_BASE = 'https://www.fangraphs.com/api/leaders/major-league/data?pos=all&lg=all&qual=0&month=0&hand=&team=0&pageitems=2000000&pagenum=1&ind=0&rost=0&players=&sortdir=default&sortstat=WAR';
 
-// Endpoints to fetch and merge
-const FG_BAT_TYPES = [8, 1, 2, 7, 5, 24, 6]; // Dashboard, Advanced, Batted Ball, Win Prob, Plate Disc, Statcast, Value
-const FG_PITCH_TYPES = [0, 1, 2, 23, 24, 36, 44]; // Dashboard, Advanced, Batted Ball, Pitch Value, Statcast, Stuff+, Pitcher Win Prob
+const FG_BAT_TYPES = [8, 1, 2, 7, 5, 24, 6]; 
+const FG_PITCH_TYPES = [0, 1, 2, 23, 24, 36, 44]; 
 
-// Strict schemas requested by the user
 const FG_BAT_COLUMNS = [
   "IDPLAYER", "IDFANGRAPHS", "YEAR", "PlayerName", "TeamNameAbb", "Age", "G", "AB", "PA", "H", "1B", "2B", "3B", "HR", "R", "RBI", "BB", "SO", "HBP", "SF", "SH", "SB", "CS", "AVG", "BB%", "K%", "BB/K", "OBP", "SLG", "OPS", "ISO", "BABIP", "GB/FB", "LD%", "GB%", "FB%", "IFFB%", "HR/FB", "wOBA", "wRAA", "wRC", "Batting", "BaseRunning", "Positional", "Offense", "Spd", "wRC+", "wBsR", "O-Swing%", "Z-Swing%", "Swing%", "O-Contact%", "Z-Contact%", "Contact%", "Zone%", "F-Strike%", "SwStr%", "CStr%", "C+SwStr%", "Pull%", "Cent%", "Oppo%", "Soft%", "Med%", "Hard%", "AVG+", "BB%+", "K%+", "OBP+", "SLG+", "ISO+", "BABIP+", "LD%+", "GB%+", "FB%+", "HRFB%+", "Pull%+", "Cent%+", "Oppo%+", "Soft%+", "Med%+", "Hard%+", "xwOBA", "xAVG", "xSLG", "XBR", "AvgBatSpeed", "FastSwing%", "SwingLength", "SquaredUpContact%", "SquaredUpSwing%", "BlastContact%", "BlastSwing%", "Tilt", "AttackAngle", "AttackDirection", "IdealAttackAngle%", "EV", "LA", "Barrel%", "maxEV", "HardHit%", "EV90"
 ];
@@ -30,10 +27,6 @@ const FG_PITCH_COLUMNS = [
 //  BATTING STATS
 // ============================================================================
 
-/**
- * Fetches and merges FanGraphs Batting stats. Archives prior year on rollover.
- * @writesTo _FG_B
- */
 function updateFanGraphsBatting() {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName('CURRENT_YEAR')?.getValue(), 10);
@@ -42,7 +35,6 @@ function updateFanGraphsBatting() {
   const prevYear = currentYear - 1;
   const maps = getPlayerMaps('IDFANGRAPHS');
   
-  // Archive Check
   const archiveSS = getArchiveSS();
   if (archiveSS) {
     const archiveSheet = archiveSS.getSheetByName('_FG_B');
@@ -52,11 +44,14 @@ function updateFanGraphsBatting() {
     }
   }
 
-  // Current Year Fetch
   const currentData = _fetchAndMergeFanGraphs(currentYear, maps, 'bat', FG_BAT_TYPES, FG_BAT_COLUMNS);
   if (currentData && currentData.length > 1) {
-    writeToData('_FG_B', currentData);
-    _updateTimestamp('UPDATE_FG_BAT');
+    try {
+      writeToData('_FG_B', currentData);
+      _updateTimestamp('UPDATE_FG_BAT');
+    } catch (e) {
+      Logger.log(`Failed to write FG Batting: ${e.message}`);
+    }
   }
 }
 
@@ -64,10 +59,6 @@ function updateFanGraphsBatting() {
 //  PITCHING STATS
 // ============================================================================
 
-/**
- * Fetches and merges FanGraphs Pitching stats. Archives prior year on rollover.
- * @writesTo _FG_P
- */
 function updateFanGraphsPitching() {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName('CURRENT_YEAR')?.getValue(), 10);
@@ -76,7 +67,6 @@ function updateFanGraphsPitching() {
   const prevYear = currentYear - 1;
   const maps = getPlayerMaps('IDFANGRAPHS');
   
-  // Archive Check
   const archiveSS = getArchiveSS();
   if (archiveSS) {
     const archiveSheet = archiveSS.getSheetByName('_FG_P');
@@ -86,11 +76,14 @@ function updateFanGraphsPitching() {
     }
   }
 
-  // Current Year Fetch
   const currentData = _fetchAndMergeFanGraphs(currentYear, maps, 'pit', FG_PITCH_TYPES, FG_PITCH_COLUMNS);
   if (currentData && currentData.length > 1) {
-    writeToData('_FG_P', currentData);
-    _updateTimestamp('UPDATE_FG_PITCH');
+    try {
+      writeToData('_FG_P', currentData);
+      _updateTimestamp('UPDATE_FG_PITCH');
+    } catch(e) {
+      Logger.log(`Failed to write FG Pitching: ${e.message}`);
+    }
   }
 }
 
@@ -98,19 +91,13 @@ function updateFanGraphsPitching() {
 //  INTERNAL MERGE ENGINE
 // ============================================================================
 
-/**
- * Highly optimized fetch and merge engine. Fetches multiple endpoints in parallel,
- * merges rows by player ID, and strictly extracts only requested columns to save memory.
- */
 function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) {
   const urls = typeArray.map(t => `${FG_LEADERBOARD_BASE}&stats=${statType}&season=${year}&season1=${year}&type=${t}`);
-  const responses = _fetchAllYahooAPI(urls); // We use the Yahoo wrapper because it handles UrlFetchApp.fetchAll + retries beautifully
+  const responses = _fetchAllYahooAPI(urls); 
   
   const playerMap = {};
   let anyData = false;
 
-  // Track the raw JSON keys required based on schema mapping
-  // FG occasionally uses "Name" instead of "PlayerName", etc. We handle both dynamically.
   const schemaKeys = new Set(targetSchema);
 
   responses.forEach(resp => {
@@ -118,12 +105,13 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
     anyData = true;
 
     resp.data.forEach(row => {
-      const fgId = row.playerid;
+      // Use fallback keys just in case FanGraphs changes the leaderboard API
+      const fgIdRaw = row.playerid || row.playerids || row.PlayerId;
+      const fgId = fgIdRaw ? fgIdRaw.toString() : null;
       if (!fgId) return;
 
       if (!playerMap[fgId]) playerMap[fgId] = {};
       
-      // Memory Optimization: Only copy keys that exist in our Target Schema OR are necessary for ID Resolution
       Object.keys(row).forEach(key => {
         if (schemaKeys.has(key) || key === 'PlayerName' || key === 'Name' || key === 'Team' || key === 'TeamNameAbb' || key === 'xMLBAMID') {
           playerMap[fgId][key] = row[key];
@@ -137,19 +125,19 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
   const outputRows = [targetSchema];
 
   Object.values(playerMap).forEach(row => {
-    const fgId = row.playerid ? row.playerid.toString() : "";
-    const mlbId = row.xMLBAMID ? row.xMLBAMID.toString() : null;
+    const fgIdRaw = row.playerid || row.playerids || row.PlayerId;
+    const fgId = fgIdRaw ? fgIdRaw.toString() : "";
     
-    // Clean HTML tags from names and teams
-    const pNameRaw = row.PlayerName || row.Name || "";
-    const pTeamRaw = row.TeamNameAbb || row.Team || "";
+    const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
+    const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
+    
+    const pNameRaw = row.PlayerName || row.Name || row.playerName || "";
+    const pTeamRaw = row.TeamNameAbb || row.Team || row.team || "";
     const pName = pNameRaw.toString().replace(/<[^>]+>/g, '').trim();
     const teamAbbr = pTeamRaw.toString().replace(/<[^>]+>/g, '').trim();
     
-    // resolvePrimaryId(maps, platformId, mlbId, fgId, name, source, team)
-    const primaryId = resolvePrimaryId(maps, null, mlbId, fgId, pName, 'updateFanGraphsStats', teamAbbr);
+    const primaryId = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, 'updateFanGraphsStats', teamAbbr);
 
-    // Map strictly to schema
     const dataRow = targetSchema.map(col => {
       if (col === "IDPLAYER") return primaryId;
       if (col === "IDFANGRAPHS") return fgId;
@@ -166,9 +154,6 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
   return outputRows;
 }
 
-/**
- * Reads the 'YEAR' column from an archive sheet.
- */
 function _readFgYear(sheet) {
   if (!sheet || sheet.getLastRow() < 2) return 0;
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -190,7 +175,8 @@ const FG_BAT_PROJ_GROUPS = {
   "ATC":          [{ id: "atc", type: "Pre-Season" }, { id: "ratcdc", type: "ROS" }],
   "THE_BAT":      [{ id: "thebat", type: "Pre-Season" }, { id: "rthebat", type: "ROS" }],
   "THE_BAT_X":    [{ id: "thebatx", type: "Pre-Season" }, { id: "rthebatx", type: "ROS" }],
-  "ZiPS_DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }]
+  "ZiPS_DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }],
+  "OOPSY":        [{ id: "oopsy", type: "Pre-Season" }, { id: "roopsydc", type: "ROS" }]
 };
 
 const FG_PITCH_PROJ_GROUPS = {
@@ -199,34 +185,24 @@ const FG_PITCH_PROJ_GROUPS = {
   "Depth_Charts": [{ id: "fangraphsdc", type: "Pre-Season" }, { id: "rfangraphsdc", type: "ROS" }],
   "ATC":          [{ id: "atc", type: "Pre-Season" }, { id: "ratcdc", type: "ROS" }],
   "THE_BAT":      [{ id: "thebat", type: "Pre-Season" }, { id: "rthebat", type: "ROS" }],
+  "THE_BAT_X":    [{ id: "thebatx", type: "Pre-Season" }, { id: "rthebatx", type: "ROS" }],
   "ZiPS_DC":      [{ id: "zipsdc", type: "Pre-Season" }, { id: "rzipsdc", type: "ROS" }],
   "OOPSY":        [{ id: "oopsy", type: "Pre-Season" }, { id: "roopsydc", type: "ROS" }]
 };
 
 // ============================================================================
-//  PROJECTIONS (BATTING)
+//  PROJECTIONS ENGINE
 // ============================================================================
 
-/**
- * Fetches batting projections from multiple systems.
- * @writesTo _FG_PROJ_B
- */
 function updateFanGraphsBattingProjections() {
-  _updateFanGraphsProjections(FG_BAT_PROJ_GROUPS, 'bat', '_FG_PROJ_B');
+  _updateFanGraphsProjections(FG_BAT_PROJ_GROUPS, 'bat', '_FG_PROJ_B', 'B');
 }
 
-/**
- * Fetches pitching projections from multiple systems.
- * @writesTo _FG_PROJ_P
- */
 function updateFanGraphsPitchingProjections() {
-  _updateFanGraphsProjections(FG_PITCH_PROJ_GROUPS, 'pit', '_FG_PROJ_P');
+  _updateFanGraphsProjections(FG_PITCH_PROJ_GROUPS, 'pit', '_FG_PROJ_P', 'P');
 }
 
-/**
- * Core projection fetch engine. Fetches systems in parallel, dynamically builds columns.
- */
-function _updateFanGraphsProjections(projGroups, statType, outputSheet) {
+function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuffix) {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName('CURRENT_YEAR')?.getValue(), 10);
   if (!currentYear) return;
@@ -236,46 +212,86 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet) {
   const requestQueue = [];
   const metaQueue = [];
 
+  // STEP 1: Set UI to "Updating" status instantly
   for (let groupName in projGroups) {
     projGroups[groupName].forEach(variant => {
-      requestQueue.push(`${FG_PROJ_BASE_URL}?pos=all&stats=${statType}&type=${variant.id}`);
-      metaQueue.push({ groupName, sysType: variant.type });
+      let rangeName = `UPDATE_${groupName.toUpperCase()}`;
+      if (variant.type === 'ROS') rangeName += '_ROS';
+      rangeName += `_${typeSuffix}`;
+      
+      requestQueue.push(`${FG_PROJ_BASE_URL}?pos=all&stats=${statType}&type=${variant.id}&team=0&players=0&lg=all`);
+      metaQueue.push({ groupName, sysType: variant.type, rangeName });
+      
+      // Stamp the dashboard with the Loading/Updating icon
+      _setStatusIcon(ss, rangeName, '=ICON_UPDATE_LIGHT');
     });
   }
+  
+  // Force Google Sheets to visually update the UI immediately before we pause for the download
+  SpreadsheetApp.flush();
 
-  // We use the regular fetchAll here to utilize the custom User-Agent FanGraphs requires for this endpoint
+  // STEP 2: Fetch the data
   const options = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
   const requests = requestQueue.map(url => ({ url: url, ...options }));
   
   let responses;
-  try { responses = UrlFetchApp.fetchAll(requests); } 
-  catch (e) { _logError('dataFanGraphs.gs', `Projection Fetch Error: ${e.message}`, 'CRITICAL'); return; }
+  try { 
+    responses = UrlFetchApp.fetchAll(requests); 
+  } catch (e) { 
+    _logError('dataFanGraphs.gs', `Projection Fetch Error: ${e.message}`, 'CRITICAL'); 
+    // Fetch totally failed. Downgrade all to Fail.
+    metaQueue.forEach(meta => _setStatusIcon(ss, meta.rangeName, '=ICON_FAIL'));
+    return; 
+  }
 
   const allObjects = [];
   const allKeys = new Set();
-  const successfulUpdates = new Set();
+  const systemStatuses = {}; // Keep track of final statuses to stamp at the end
+  let hasValidDataToWrite = false;
 
+  // STEP 3: Process the data
   responses.forEach((response, idx) => {
     const meta = metaQueue[idx];
-    if (!response || response.getResponseCode() !== 200) return;
+    const rName = meta.rangeName;
+    
+    if (!response || response.getResponseCode() !== 200) {
+      Logger.log(`Skipped ${meta.groupName}|${meta.sysType} - Bad Response Code`);
+      systemStatuses[rName] = '=ICON_FAIL';
+      return;
+    }
 
     let json;
-    try { json = JSON.parse(response.getContentText()); } 
-    catch (e) { return; }
+    try { 
+      json = JSON.parse(response.getContentText()); 
+    } catch (e) { 
+      Logger.log(`Skipped ${meta.groupName}|${meta.sysType} - Failed to parse JSON.`);
+      systemStatuses[rName] = '=ICON_FAIL';
+      return; 
+    }
     
     const data = Array.isArray(json) ? json : (json?.data || []);
     if (data.length > 0) {
-      successfulUpdates.add(`${meta.groupName}|${meta.sysType}`);
+      let validPlayerCount = 0;
       
       data.forEach(row => {
-        const fgId = row.playerid ? row.playerid.toString() : "";
-        const mlbId = row.xMLBAMID ? row.xMLBAMID.toString() : null;
-        const pName = (row.PlayerName || row.name || "").toString().replace(/<[^>]+>/g, '').trim();
-        const teamAbbr = (row.Team || row.TeamNameAbb || "").toString().replace(/<[^>]+>/g, '').trim();
+        const fgIdRaw = row.playerids || row.playerid || row.PlayerId || row.PLAYERID;
+        const fgId = fgIdRaw ? fgIdRaw.toString() : "";
+        if (!fgId) return; 
+        
+        validPlayerCount++;
+        
+        const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
+        const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
+        
+        const pNameRaw = row.PlayerName || row.name || row.playerName || "";
+        const pName = pNameRaw.toString().replace(/<[^>]+>/g, '').trim();
+        
+        const teamRaw = row.Team || row.TeamNameAbb || row.team || "";
+        const teamAbbr = teamRaw.toString().replace(/<[^>]+>/g, '').trim();
         
         const cacheKey = `${fgId}_${mlbId}_${pName}`;
         if (!idCache[cacheKey]) {
-          idCache[cacheKey] = resolvePrimaryId(maps, null, mlbId, fgId, pName, `updateFGProj_${statType}`, teamAbbr);
+          idCache[cacheKey] = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, `updateFGProj_${statType}`, teamAbbr);
         }
 
         row["IDPLAYER"]    = idCache[cacheKey];
@@ -287,10 +303,22 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet) {
         Object.keys(row).forEach(key => allKeys.add(key));
         allObjects.push(row);
       });
+
+      if (validPlayerCount > 0) {
+        systemStatuses[rName] = '=ICON_PASS';
+        hasValidDataToWrite = true;
+      } else {
+        Logger.log(`Warning: Found JSON for ${meta.groupName}|${meta.sysType} but couldn't find valid player IDs.`);
+        systemStatuses[rName] = '=ICON_FAIL';
+      }
+    } else {
+      // FanGraphs returned empty. Stop updating this system.
+      systemStatuses[rName] = '=ICON_PASS_LIGHT';
     }
   });
 
-  if (allObjects.length > 0) {
+  // STEP 4: Write & Finalize
+  if (hasValidDataToWrite && allObjects.length > 0) {
     allKeys.delete("IDPLAYER");
     allKeys.delete("IDFANGRAPHS");
     allKeys.delete("YEAR");
@@ -304,15 +332,42 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet) {
       outputData.push(headers.map(key => rowObj.hasOwnProperty(key) ? rowObj[key] : ""));
     });
     
-    writeToData(outputSheet, outputData);
-    
-    // Update individual timestamps for each system fetched successfully
-    successfulUpdates.forEach(updateKey => {
-      const [group, type] = updateKey.split('|');
-      let rangeName = `UPDATE_${group.toUpperCase()}`;
-      if (type === 'ROS') rangeName += '_ROS';
-      _updateTimestamp(rangeName);
-    });
+    try {
+      writeToData(outputSheet, outputData);
+      
+      // Write succeeded! Now update the overall timestamp & commit all specific icons
+      _updateTimestamp(`UPDATE_FG_PROJECTIONS_${typeSuffix}`);
+      Object.entries(systemStatuses).forEach(([rName, icon]) => _setStatusIcon(ss, rName, icon));
+      
+      Logger.log(`Successfully pulled and wrote ${outputData.length - 1} projection rows to ${outputSheet}.`);
+      
+    } catch(e) {
+      Logger.log(`Failed to write projections to ${outputSheet}. Main timestamp aborted. Error: ${e.message}`);
+      
+      // Failsafe: Write crashed, downgrade any passes to fails so you aren't lied to by the dashboard
+      Object.entries(systemStatuses).forEach(([rName, icon]) => {
+        if (icon === '=ICON_PASS') _setStatusIcon(ss, rName, '=ICON_FAIL');
+        else _setStatusIcon(ss, rName, icon);
+      });
+    }
+  } else {
+    Logger.log(`Finished Projections for ${statType}. No valid data found to write (Systems likely inactive).`);
+    // Output the PASS_LIGHT / FAIL statuses anyway
+    Object.entries(systemStatuses).forEach(([rName, icon]) => _setStatusIcon(ss, rName, icon));
+  }
+}
+
+/**
+ * HELPER: Updates a named range with a specific status formula/icon instead of a timestamp.
+ */
+function _setStatusIcon(ss, rangeName, iconFormula) {
+  try {
+    const range = ss.getRangeByName(rangeName);
+    if (range) {
+      range.setFormula(iconFormula);
+    }
+  } catch (e) {
+    Logger.log(`Error setting status for ${rangeName}: ${e.message}`);
   }
 }
 
@@ -332,10 +387,6 @@ const FG_PROSP_COLUMNS = [
   "Range", "Touch", "Delivery", "FBType", "pSPL", "fSPL", "bRPM", "fRPM", "TJDate"
 ];
 
-/**
- * Fetches FanGraphs prospect board data (Standard and Updated).
- * @writesTo _FG_PROSP
- */
 function updateFanGraphsProspects() {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName("CURRENT_YEAR")?.getValue(), 10);
@@ -355,8 +406,12 @@ function updateFanGraphsProspects() {
 
   const currentData = _fetchProspectData(currentYear, maps);
   if (currentData && currentData.length > 1) {
-    writeToData('_FG_PROSP', currentData);
-    _updateTimestamp('UPDATE_FG_PROSP');
+    try {
+      writeToData('_FG_PROSP', currentData);
+      _updateTimestamp('UPDATE_FG_PROSP');
+    } catch(e) {
+      Logger.log(`Failed to write FG Prospects: ${e.message}`);
+    }
   }
 }
 
@@ -386,12 +441,16 @@ function _fetchProspectData(year, maps) {
       player["Type"] = boards[idx].name;
       player["Season"] = year;
       
-      const fgId = player["PlayerId"] ? player["PlayerId"].toString() : "";
-      const mlbId = player["xMLBAMID"] ? player["xMLBAMID"].toString() : null;
-      const pName = (player["playerName"] || "").toString().replace(/<[^>]+>/g, '').trim();
-      const teamAbbr = (player["Team"] || "").toString().replace(/<[^>]+>/g, '').trim();
+      const fgIdRaw = player["PlayerId"] || player["playerid"] || player["playerids"];
+      const fgId = fgIdRaw ? fgIdRaw.toString() : "";
+      
+      const mlbIdRaw = player["xMLBAMID"] || player["MLBAMID"] || player["mlbamid"];
+      const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
+      
+      const pName = (player["playerName"] || player["Name"] || "").toString().replace(/<[^>]+>/g, '').trim();
+      const teamAbbr = (player["Team"] || player["team"] || "").toString().replace(/<[^>]+>/g, '').trim();
 
-      player["IDPLAYER"] = resolvePrimaryId(maps, null, mlbId, fgId, pName, 'updateFanGraphsProspects', teamAbbr);
+      player["IDPLAYER"] = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, 'updateFanGraphsProspects', teamAbbr);
       player["IDFANGRAPHS"] = fgId;
 
       const rowData = FG_PROSP_COLUMNS.map(key => {

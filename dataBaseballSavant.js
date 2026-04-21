@@ -19,9 +19,6 @@ const SAVANT_ENDPOINTS = [
 //  MAIN FETCH FUNCTION
 // ============================================================================
 
-/**
- * Fetches Savant percentiles. Archives previous year if not already present.
- */
 function updateBaseballSavantPercentiles() {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName('CURRENT_YEAR')?.getValue(), 10);
@@ -33,7 +30,6 @@ function updateBaseballSavantPercentiles() {
   const maps = getPlayerMaps('MLBID'); 
 
   SAVANT_ENDPOINTS.forEach(endpoint => {
-    // 1. Archive prior year if needed
     const archiveSS = getArchiveSS();
     if (archiveSS) {
       const archiveSheet = archiveSS.getSheetByName(endpoint.sheetName);
@@ -43,7 +39,6 @@ function updateBaseballSavantPercentiles() {
       }
     }
 
-    // 2. Fetch and Write Current Year
     const currentData = _fetchSavantData(endpoint.url, currentYear, maps);
     if (currentData && currentData.length > 1) {
       writeToData(endpoint.sheetName, currentData);
@@ -57,10 +52,6 @@ function updateBaseballSavantPercentiles() {
 //  FETCH & PARSE HELPERS
 // ============================================================================
 
-/**
- * Fetches Savant CSV, dynamically retains all columns, swaps player_id for MLBID, 
- * and prepends IDPLAYER.
- */
 function _fetchSavantData(baseUrl, year, maps) {
   const url = `${baseUrl}&year=${year}`;
   const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
@@ -79,7 +70,6 @@ function _fetchSavantData(baseUrl, year, maps) {
   const iFirst = rawHeaders.indexOf('first_name');
   const iLast = rawHeaders.indexOf('last_name');
 
-  // Build Headers: IDPLAYER, MLBID, [Dynamic Savant Columns...]
   const outputHeaders = ['IDPLAYER', 'MLBID'];
   rawHeaders.forEach((h, idx) => { if (idx !== iPlayerId) outputHeaders.push(h); });
   
@@ -93,8 +83,8 @@ function _fetchSavantData(baseUrl, year, maps) {
     if (iPlayerName !== -1) fullName = row[iPlayerName];
     else if (iFirst !== -1 && iLast !== -1) fullName = `${row[iFirst]} ${row[iLast]}`;
 
-    // resolvePrimaryId(maps, platformId, mlbId, fgId, name, source, team)
-    const primaryId = resolvePrimaryId(maps, null, mlbId, null, fullName, 'updateBaseballSavantPercentiles', null);
+    // FIX: Pass mlbId as platformId
+    const primaryId = resolvePrimaryId(maps, mlbId, mlbId, null, fullName, 'updateBaseballSavantPercentiles', null);
 
     const newRow = [primaryId, mlbId];
     row.forEach((val, idx) => { if (idx !== iPlayerId) newRow.push(val); });
@@ -104,9 +94,6 @@ function _fetchSavantData(baseUrl, year, maps) {
   return outputRows;
 }
 
-/**
- * Reads the 'year' column from the archive sheet to determine stored season.
- */
 function _readSavantYear(sheet) {
   if (!sheet || sheet.getLastRow() < 2) return 0;
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
