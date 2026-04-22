@@ -224,3 +224,42 @@ function _spreadsheetCounts() {
     if (range) range.setValue(count);
   });
 }
+
+/**
+ * @description Reads the _LEAGUE_INFO sheet to dynamically determine season progress.
+ * Automatically flags when the league has entered the playoffs.
+ * @returns {Object} Context object containing week numbers, dates, and playoff status.
+ */
+function _getLeagueScheduleContext() {
+  const dataSS = getDataSS();
+  const infoSheet = dataSS.getSheetByName("_LEAGUE_INFO");
+  
+  if (!infoSheet) return null;
+
+  // Read columns A, B, C
+  const data = infoSheet.getRange("A2:C" + infoSheet.getLastRow()).getValues();
+  
+  let context = {
+    startWeek: 1,
+    endWeek: 26,
+    currentWeek: 1,
+    playoffStartWeek: 24,
+    isPlayoffs: false
+  };
+
+  data.forEach(row => {
+    const type = row[0]?.toString().toLowerCase();
+    const key = row[1]?.toString().toLowerCase();
+    const val = row[2];
+
+    if (type === 'league' && key === 'start_week') context.startWeek = parseInt(val, 10);
+    if (type === 'league' && key === 'end_week') context.endWeek = parseInt(val, 10);
+    if (type === 'league' && key === 'current_week') context.currentWeek = parseInt(val, 10);
+    if (type === 'settings' && key === 'playoff_start_week') context.playoffStartWeek = parseInt(val, 10);
+  });
+
+  // Automatically flag playoff mode
+  context.isPlayoffs = (context.currentWeek >= context.playoffStartWeek);
+  
+  return context;
+}

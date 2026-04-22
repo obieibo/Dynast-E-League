@@ -1,16 +1,15 @@
 /**
  * @file dataBaseballSavant.gs
- * @description Advanced fetcher for Baseball Savant data. Pulls multiple CSV endpoints 
- * (Percentiles, Statcast, Expected Stats, Bat Tracking, etc.) in parallel, merges them 
- * dynamically by MLB_ID, and generates a unified Master Table for Batters and Pitchers.
+ * @description Advanced fetcher for Baseball Savant data. Pulls both percentile data 
+ * (for UI/dashboards) and Raw xStats (for projection regression modeling).
+ * Keys all data by MLB_ID.
  * @dependencies _helpers.gs, resolvePlayer.gs
- * @writesTo _BS_B, _BS_P, and Archive workbook
+ * @writesTo _BS_B, _BS_P, _BS_RAW_B, _BS_RAW_P
  */
 
 // ============================================================================
 //  SAVANT CONSTANTS & CONFIGURATION
 // ============================================================================
-// Note: min=1 ensures we get the entire player universe, not just qualifiers.
 
 const SAVANT_CONFIG = {
   batters: {
@@ -22,8 +21,7 @@ const SAVANT_CONFIG = {
       'https://baseballsavant.mlb.com/leaderboard/bat-tracking?min_swings=1&csv=true',
       'https://baseballsavant.mlb.com/leaderboard/sprint_speed?min_opps=1&csv=true',
       'https://baseballsavant.mlb.com/leaderboard/baserunning-run-value?csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/run_value?type=batter&min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/fielding-run-value?csv=true'
+      'https://baseballsavant.mlb.com/leaderboard/run_value?type=batter&min=1&csv=true'
     ]
   },
   pitchers: {
@@ -35,6 +33,20 @@ const SAVANT_CONFIG = {
       'https://baseballsavant.mlb.com/leaderboard/pitch-arsenal-stats?min=1&csv=true',
       'https://baseballsavant.mlb.com/leaderboard/pitch-movement?min=1&csv=true',
       'https://baseballsavant.mlb.com/leaderboard/run_value?type=pitcher&min=1&csv=true'
+    ]
+  },
+  rawBatters: {
+    sheetName: '_BS_RAW_B',
+    urls: [
+      // Custom endpoint pulling exact metrics needed for mathematical regression
+      'https://baseballsavant.mlb.com/leaderboard/custom?year={year}&type=batter&filter=&sort=4&sortDir=desc&min=1&selections=xba,xslg,xwoba,xobp,barrel_batted_rate,hard_hit_percent,sweet_spot_percent,sprint_speed,exit_velocity_avg&csv=true'
+    ]
+  },
+  rawPitchers: {
+    sheetName: '_BS_RAW_P',
+    urls: [
+      // Custom endpoint pulling exact metrics needed for mathematical regression
+      'https://baseballsavant.mlb.com/leaderboard/custom?year={year}&type=pitcher&filter=&sort=4&sortDir=desc&min=1&selections=xba,xera,xwoba,whiff_percent,csw_rate,k_percent,bb_percent,barrel_batted_rate,n_fastball_formatted&csv=true'
     ]
   }
 };
@@ -55,13 +67,14 @@ function updateBaseballSavantData() {
   const prevYear = currentYear - 1;
   const maps = getPlayerMaps('MLBID'); 
 
-  // Process Batters and Pitchers
-  ['batters', 'pitchers'].forEach(groupKey => {
+  // Process all groups: Percentiles (Batters/Pitchers) & Raw (Batters/Pitchers)
+  ['batters', 'pitchers', 'rawBatters', 'rawPitchers'].forEach(groupKey => {
     const config = SAVANT_CONFIG[groupKey];
     const archiveSS = getArchiveSS();
     
-    // 1. Check and Process Archive (Previous Year)
-    if (archiveSS) {
+    // 1. Check and Process Archive (Previous Year) ONLY if season is complete
+    // Archiving is restricted to percentile sheets to save space, unless requested otherwise
+    if (archiveSS && !groupKey.includes('raw')) {
       const archiveSheet = archiveSS.getSheetByName(config.sheetName);
       if (_readSavantYear(archiveSheet) !== prevYear) {
         const prevData = _fetchAndMergeSavantData(config.urls, prevYear, maps, config.sheetName);
@@ -76,35 +89,28 @@ function updateBaseballSavantData() {
     }
   });
 
-  _updateTimestamp('UPDATE_BS'); // Make sure you have this named range in your sheet
+  _updateTimestamp('UPDATE_BS'); 
 }
 
 // ============================================================================
 //  FETCH & MERGE ENGINE
 // ============================================================================
 
-/**
- * Fetches multiple Savant CSVs in parallel and merges them into a single 2D array.
- * Keys all data to the player's MLB_ID and strips duplicate columns (like year, name).
- */
 function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
-  // Append the year parameter to all URLs
+  // Inject the year parameter where {year} is present, otherwise append it
   const requests = baseUrls.map(url => ({
-    url: `${url}&year=${year}`,
+    url: url.includes('{year}') ? url.replace('{year}', year) : `${url}&year=${year}`,
     muteHttpExceptions: true
   }));
 
-  // Fetch all endpoints simultaneously for massive speed improvement
   const responses = UrlFetchApp.fetchAll(requests);
   
   const playerMap = {};
   const allHeaders = ['IDPLAYER', 'MLBID']; 
   const headerTracker = new Set(allHeaders);
 
-  // Iterate through each CSV response
   responses.forEach((response, index) => {
     if (response.getResponseCode() !== 200) {
-      // Don't kill the script if one endpoint fails (e.g. Bat Tracking in 2022)
       Logger.log(`Warning: Failed to fetch Savant endpoint for ${year}: ${requests[index].url}`);
       return; 
     }
@@ -114,20 +120,18 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
 
     const rawHeaders = csvData[0].map(h => h.trim());
     
-    // Find the primary identifying columns in this specific CSV
+    // Find identifying columns
     const iPlayerId = rawHeaders.indexOf('player_id');
     const iPlayerName = rawHeaders.indexOf('player_name') > -1 ? rawHeaders.indexOf('player_name') : rawHeaders.indexOf('last_name, first_name');
     const iFirst = rawHeaders.indexOf('first_name');
     const iLast = rawHeaders.indexOf('last_name');
 
-    if (iPlayerId === -1) return; // Cannot merge without an ID
+    if (iPlayerId === -1) return; 
 
-    // Record new headers we haven't seen yet in previous CSVs
+    // Record unique headers
     const validColIndices = [];
     rawHeaders.forEach((header, idx) => {
-      // Exclude redundant columns that appear in every CSV
       const isRedundant = ['player_id', 'player_name', 'last_name, first_name', 'first_name', 'last_name', 'year'].includes(header.toLowerCase());
-      
       if (!isRedundant) {
         validColIndices.push(idx);
         if (!headerTracker.has(header)) {
@@ -143,22 +147,17 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
       const mlbId = row[iPlayerId];
       if (!mlbId) continue;
 
-      // Initialize player in map if they don't exist yet
       if (!playerMap[mlbId]) {
         let fullName = '';
         if (iPlayerName !== -1) fullName = row[iPlayerName];
         else if (iFirst !== -1 && iLast !== -1) fullName = `${row[iFirst]} ${row[iLast]}`;
         
-        // Resolve to your league's Master ID
+        // Resolve ID based on MLBID mapping
         const primaryId = resolvePrimaryId(maps, mlbId, mlbId, null, fullName, `Savant_${sheetName}`, null);
         
-        playerMap[mlbId] = {
-          'IDPLAYER': primaryId,
-          'MLBID': mlbId
-        };
+        playerMap[mlbId] = { 'IDPLAYER': primaryId, 'MLBID': mlbId };
       }
 
-      // Add the specific stats from this CSV into the player's object
       validColIndices.forEach(idx => {
         const headerName = rawHeaders[idx];
         playerMap[mlbId][headerName] = row[idx];
@@ -166,11 +165,9 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
     }
   });
 
-  // If no players were found across any CSV, abort
   const playerIds = Object.keys(playerMap);
   if (playerIds.length === 0) return null;
 
-  // Convert the Object Map back into a 2D Array for writing to Google Sheets
   const outputRows = [allHeaders];
   
   playerIds.forEach(mlbId => {
@@ -182,12 +179,8 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
   return outputRows;
 }
 
-/**
- * Reads the year from an existing Savant archive sheet to prevent unnecessary updates.
- */
 function _readSavantYear(sheet) {
   if (!sheet || sheet.getLastRow() < 2) return 0;
-  // Fallback checking multiple ways Savant might output the year column
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => h.toString().toLowerCase());
   const yearIdx = headers.indexOf('year');
   

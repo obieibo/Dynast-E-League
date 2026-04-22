@@ -596,14 +596,22 @@ function updateYahooDraft() {
 
     dataRows.push([pick.round, pick.pick - ((pick.round - 1) * numTeams), pick.pick, p.keeper ? '' : adjCount++, tId, mId, rName, p.keeper, primaryId, p.pId, p.name, p.team, p.positions, cleanPositions, isIL, isNA]);
 
+    // Added "" at index 4 (Column E) to shift Manager to Column F
     displayRows.push([
-      pick.round, pick.pick - ((pick.round - 1) * numTeams), pick.pick, p.keeper ? '' : (adjCount - 1),
-      `=XLOOKUP(${mId}, MANAGERS_MANAGER_ID, MANAGERS_SHORT_NAME, "")`,
-      `=INDEX(ICON_TEAM_LOGOS, MATCH(${tId}, CHOOSECOLS(ICON_TEAM_LOGOS, 1), 0), IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), 4, 3))`, 
+      pick.round, 
+      pick.pick - ((pick.round - 1) * numTeams), 
+      pick.pick, 
+      p.keeper ? '' : (adjCount - 1),
+      "", // BLANK COLUMN E
+      `=XLOOKUP(${mId}, MANAGERS_MANAGER_ID, MANAGERS_SHORT_NAME, "")`, // Now Column F
+      `=INDEX(ICON_TEAM_LOGOS, MATCH(${tId}, CHOOSECOLS(ICON_TEAM_LOGOS, 1), 0), IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), 4, 3))`, 
       rName,
-      p.keeper ? '=IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), ICON_K_LIGHT, ICON_K)' : '', p.name,
-      p.team ? `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${p.team}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(${currentYear}, MLB_TEAM_YEARS, 0) + IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), 1, 0)), "${p.team}")` : '',
-      cleanPositions, isIL ? '=IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), ICON_IL_LIGHT, ICON_IL)' : '', isNA ? '=IF(AND(INDIRECT("I"&ROW()) <> "", $I$1 > 0), ICON_NA_LIGHT, ICON_NA)' : ''
+      p.keeper ? '=IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), ICON_K_LIGHT, ICON_K)' : '', 
+      p.name, // Now Column J
+      p.team ? `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${p.team}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(${currentYear}, MLB_TEAM_YEARS, 0) + IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), 1, 0)), "${p.team}")` : '',
+      cleanPositions, 
+      isIL ? '=IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), ICON_IL_LIGHT, ICON_IL)' : '', 
+      isNA ? '=IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), ICON_NA_LIGHT, ICON_NA)' : ''
     ]);
   });
 
@@ -611,9 +619,10 @@ function updateYahooDraft() {
 
   const displaySheet = ss.getSheetByName('Draft');
   if (displaySheet && displayRows.length > 0) {
-    if (displaySheet.getLastRow() >= 4) displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 13).clearContent();
-    displaySheet.getRange(4, 1, displayRows.length, 13).setValues(displayRows);
-    displaySheet.getRange(4, 1, displayRows.length, 13).sort({column: 3, ascending: true});
+    // Range width updated from 13 to 14
+    if (displaySheet.getLastRow() >= 4) displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 14).clearContent();
+    displaySheet.getRange(4, 1, displayRows.length, 14).setValues(displayRows);
+    displaySheet.getRange(4, 1, displayRows.length, 14).sort({column: 3, ascending: true});
   }
   _updateTimestamp('UPDATE_DRAFTS');
   flushIdMatchingQueue();

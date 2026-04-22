@@ -2,6 +2,7 @@
  * @file dataFanGraphs.gs
  * @description Centralized engine for fetching all FanGraphs data.
  * Includes cumulative season stats (Batting & Pitching), Projections, and Prospects.
+ * Includes backfill tools to ensure historical actuals are vaulted for the Accuracy Engine.
  * @dependencies _helpers.gs, resolvePlayer.gs
  * @writesTo _FG_B, _FG_P, _FG_PROJ_B, _FG_PROJ_P, _FG_PROSP, and Archive workbook
  */

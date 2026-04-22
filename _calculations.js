@@ -1,47 +1,51 @@
 /**
  * @file _calculations.gs
  * @description Handles complex mathematical logic. Blends disparate projection 
- * systems into a weighted consensus, and calculates SGP/PAR values based on 
- * dynamic league baselines and replacement levels.
+ * systems into a consensus using a full 2D Stat-by-Stat weight matrix, regresses 
+ * them dynamically using Statcast true-talent data, and calculates SGP/PAR values.
  * @dependencies _helpers.gs
  * @writesTo _BLEND, _VALUE
  */
 
 // ============================================================================
-//  BLEND PROJECTIONS
+//  BLEND & REGRESS PROJECTIONS
 // ============================================================================
 
-/**
- * Blends various FanGraphs projection systems into a single composite projection.
- * @writesTo _BLEND
- */
 function buildBlendedProjections() {
   const ss = getPrimarySS();
   const dataSS = getDataSS();
   if (!dataSS) return;
 
-  // 1. Load System Weights
-  const weightsRange = ss.getRangeByName("WEIGHTS_SYSTEMS");
+  // 1. Load 2D Stat-by-Stat Weights Matrix
+  const weightsRange = ss.getRangeByName("WEIGHTS_STATS_SYSTEMS");
   if (!weightsRange) {
-    _logError('_calculations.gs', 'Missing Named Range: WEIGHTS_SYSTEMS', 'CRITICAL');
+    _logError('_calculations.gs', 'Missing Named Range: WEIGHTS_STATS_SYSTEMS', 'CRITICAL');
     return;
   }
+  
   const weightData = weightsRange.getValues();
-  const systemWeights = {};
-  weightData.forEach(row => {
-    const sysName = row[0]?.toString().trim();
-    const sysWeight = parseFloat(row[2]);
-    if (sysName && !isNaN(sysWeight)) systemWeights[sysName] = sysWeight;
-  });
+  const sysHeaders = weightData[0].map(h => h.toString().trim());
+  const statWeightsMap = {}; // Structure: { "HR": { "Steamer": 0.40, "ZiPS": 0.30 }, ... }
+  
+  for (let r = 1; r < weightData.length; r++) {
+    const statName = weightData[r][0]?.toString().trim();
+    if (!statName) continue;
+    
+    statWeightsMap[statName] = {};
+    for (let c = 1; c < sysHeaders.length; c++) {
+      const sysName = sysHeaders[c];
+      const weight = parseFloat(weightData[r][c]);
+      if (sysName && !isNaN(weight)) statWeightsMap[statName][sysName] = weight;
+    }
+  }
 
   // 2. Fetch Position Mapping from _PLAYERS
   const playersSheet = dataSS.getSheetByName("_PLAYERS");
   const posMap = {};
   if (playersSheet && playersSheet.getLastRow() > 1) {
     const playersData = playersSheet.getDataRange().getValues();
-    const headers = playersData[0].map(h => h.toString().trim().toUpperCase());
-    const idIdx = headers.indexOf("IDPLAYER");
-    const posIdx = headers.indexOf("POSITION");
+    const idIdx = playersData[0].map(h => h.toString().trim().toUpperCase()).indexOf("IDPLAYER");
+    const posIdx = playersData[0].map(h => h.toString().trim().toUpperCase()).indexOf("POSITION");
     
     if (idIdx > -1 && posIdx > -1) {
       for (let i = 1; i < playersData.length; i++) {
@@ -51,22 +55,36 @@ function buildBlendedProjections() {
     }
   }
 
-  // 3. Blend Data
-  const bStats = ["PA", "R", "HR", "RBI", "SB", "CS", "OPS"];
+  // 3. Blend Data using 2D Matrix
+  const bStats = ["PA", "R", "HR", "RBI", "SB", "CS", "OBP", "SLG"];
   const pStats = ["IP", "SO", "QS", "SV", "HLD", "ERA", "WHIP"];
   
-  const blendedBatters = _blendDataset(dataSS, "_FG_PROJ_B", systemWeights, "Batter", bStats);
-  const blendedPitchers = _blendDataset(dataSS, "_FG_PROJ_P", systemWeights, "Pitcher", pStats);
+  let blendedBatters = _blendDataset(dataSS, "_FG_PROJ_B", statWeightsMap, "Batter", bStats);
+  let blendedPitchers = _blendDataset(dataSS, "_FG_PROJ_P", statWeightsMap, "Pitcher", pStats);
 
-  // 4. Output Schema: IDPLAYER, Player, TEAM, Position, Type, PA, R, HR, RBI, NSB, OPS, IP, K, QS, NSVH, ERA, WHIP
+  // 4. LAYER 2: Apply Statcast Regression (In-Season Only)
+  const infoSheet = dataSS.getSheetByName("_LEAGUE_INFO");
+  let currentWeek = 1;
+  if (infoSheet) {
+    const infoData = infoSheet.getDataRange().getValues();
+    const weekRow = infoData.find(row => row[1] === "current_week");
+    if (weekRow) currentWeek = parseInt(weekRow[2]) || 1;
+  }
+  
+  blendedBatters = _applySavantRegression(blendedBatters, dataSS, "Batter", currentWeek);
+  blendedPitchers = _applySavantRegression(blendedPitchers, dataSS, "Pitcher", currentWeek);
+
+  // 5. Output Schema
   const outputRows = [["IDPLAYER", "Player", "TEAM", "Position", "Type", "PA", "R", "HR", "RBI", "NSB", "OPS", "IP", "K", "QS", "NSVH", "ERA", "WHIP"]];
 
   Object.values(blendedBatters).forEach(p => {
     const nsb = (p.stats["SB"] || 0) - (p.stats["CS"] || 0);
+    const ops = (p.stats["OBP"] || 0) + (p.stats["SLG"] || 0);
+    
     outputRows.push([
       p.id, p.name, p.team, posMap[p.id] || "", "Batter", 
       p.stats["PA"].toFixed(0), p.stats["R"].toFixed(1), p.stats["HR"].toFixed(1), 
-      p.stats["RBI"].toFixed(1), nsb.toFixed(1), p.stats["OPS"].toFixed(3), 
+      p.stats["RBI"].toFixed(1), nsb.toFixed(1), ops.toFixed(3), 
       "", "", "", "", "", ""
     ]);
   });
@@ -85,10 +103,7 @@ function buildBlendedProjections() {
   _updateTimestamp("UPDATE_BLEND");
 }
 
-/**
- * Helper to process the blending logic for a specific dataset (batters or pitchers).
- */
-function _blendDataset(dataSS, sheetName, weightsMap, playerType, statsToBlend) {
+function _blendDataset(dataSS, sheetName, statWeightsMap, playerType, statsToBlend) {
   const sheet = dataSS.getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() < 2) return {};
   
@@ -103,7 +118,9 @@ function _blendDataset(dataSS, sheetName, weightsMap, playerType, statsToBlend) 
     const pid = row[getCol("IDPLAYER")]?.toString().trim();
     const sys = row[getCol("PROJECTIONS")]?.toString().trim();
     
-    if (!pid || !weightsMap[sys] || row[getCol("TYPE")] !== "Pre-Season") continue;
+    // Check if system is in our matrix headers by looking at the PA or IP weight mappings
+    const anchorStat = playerType === "Batter" ? "PA" : "IP";
+    if (!pid || !statWeightsMap[anchorStat] || statWeightsMap[anchorStat][sys] === undefined || row[getCol("TYPE")] !== "Pre-Season") continue;
 
     if (!rawPlayerMap[pid]) {
       const pName = row[getCol("PLAYERNAME")] || row[getCol("NAME")] || row[getCol("PLAYER")] || "Unknown";
@@ -122,28 +139,51 @@ function _blendDataset(dataSS, sheetName, weightsMap, playerType, statsToBlend) 
 
   const blendedPlayers = {};
   Object.values(rawPlayerMap).forEach(p => {
-    let totalWeight = 0;
     const availableSystems = Object.keys(p.systems);
-    availableSystems.forEach(sys => totalWeight += weightsMap[sys]);
-    
-    if (totalWeight === 0) return;
+    if (availableSystems.length === 0) return;
 
     const blended = { id: p.id, name: p.name, team: p.team, stats: {} };
+    
     const volStats = playerType === "Batter" ? ["PA", "R", "HR", "RBI", "SB", "CS"] : ["IP", "SO", "QS", "SV", "HLD", "_ER", "_WH"];
     
+    // Dynamically sum weights PER STAT to ensure normalization if a system is missing for this player
     volStats.forEach(stat => {
+      // For intermediate stats (_ER, _WH) use their parent stat's weight mappings
+      const weightLookupStat = stat === "_ER" ? "ERA" : (stat === "_WH" ? "WHIP" : stat);
+      const specificWeights = statWeightsMap[weightLookupStat] || {};
+
+      let totalWeightForStat = 0;
+      availableSystems.forEach(sys => totalWeightForStat += (specificWeights[sys] || 0));
+
       let sum = 0;
-      availableSystems.forEach(sys => sum += (p.systems[sys][stat] || 0) * (weightsMap[sys] / totalWeight));
+      if (totalWeightForStat > 0) {
+        availableSystems.forEach(sys => {
+          sum += (p.systems[sys][stat] || 0) * ((specificWeights[sys] || 0) / totalWeightForStat);
+        });
+      }
       blended.stats[stat] = sum;
     });
     
+    // Process Rate Stats Independently using their specific weights
     if (playerType === "Pitcher") {
       blended.stats["ERA"] = blended.stats["IP"] > 0 ? (blended.stats["_ER"] * 9) / blended.stats["IP"] : 4.50;
       blended.stats["WHIP"] = blended.stats["IP"] > 0 ? blended.stats["_WH"] / blended.stats["IP"] : 1.35;
     } else {
-      let opsSum = 0;
-      availableSystems.forEach(sys => opsSum += (p.systems[sys]["OPS"] || 0) * (weightsMap[sys] / totalWeight));
-      blended.stats["OPS"] = opsSum;
+      let obpSum = 0, slgSum = 0;
+      let obpWeight = 0, slgWeight = 0;
+
+      availableSystems.forEach(sys => {
+        obpWeight += (statWeightsMap["OBP"]?.[sys] || 0);
+        slgWeight += (statWeightsMap["SLG"]?.[sys] || 0);
+      });
+
+      availableSystems.forEach(sys => {
+        if (obpWeight > 0) obpSum += (p.systems[sys]["OBP"] || 0) * ((statWeightsMap["OBP"]?.[sys] || 0) / obpWeight);
+        if (slgWeight > 0) slgSum += (p.systems[sys]["SLG"] || 0) * ((statWeightsMap["SLG"]?.[sys] || 0) / slgWeight);
+      });
+
+      blended.stats["OBP"] = obpSum;
+      blended.stats["SLG"] = slgSum;
     }
     blendedPlayers[p.id] = blended;
   });
@@ -152,19 +192,84 @@ function _blendDataset(dataSS, sheetName, weightsMap, playerType, statsToBlend) 
 }
 
 // ============================================================================
+//  LAYER 2: SAVANT REGRESSION ENGINE
+// ============================================================================
+
+function _applySavantRegression(blendedMap, dataSS, type, currentWeek) {
+  let savantWeight = 0;
+  if (currentWeek > 2) {
+    savantWeight = Math.min(0.75, (currentWeek - 2) * 0.05); 
+  }
+  
+  if (savantWeight <= 0) return blendedMap; 
+
+  const sheetName = type === "Batter" ? "_BS_RAW_B" : "_BS_RAW_P";
+  const rawSheet = dataSS.getSheetByName(sheetName);
+  
+  if (!rawSheet || rawSheet.getLastRow() < 2) return blendedMap;
+
+  const data = rawSheet.getDataRange().getValues();
+  const headers = data[0].map(h => h.toString().trim().toLowerCase());
+  const idxId = headers.indexOf("idplayer");
+  
+  if (idxId === -1) return blendedMap;
+
+  const savantDataMap = {};
+  for (let i = 1; i < data.length; i++) {
+    const pid = data[i][idxId]?.toString().trim();
+    if (pid) savantDataMap[pid] = data[i];
+  }
+
+  Object.keys(blendedMap).forEach(pid => {
+    const player = blendedMap[pid];
+    const sData = savantDataMap[pid];
+    
+    if (!sData) return; 
+
+    if (type === "Batter") {
+      const idxXOBP = headers.indexOf("xobp");
+      const idxXSLG = headers.indexOf("xslg");
+      
+      if (idxXOBP > -1 && sData[idxXOBP]) {
+        const xOBP = parseFloat(sData[idxXOBP]);
+        player.stats["OBP"] = (player.stats["OBP"] * (1 - savantWeight)) + (xOBP * savantWeight);
+      }
+      if (idxXSLG > -1 && sData[idxXSLG]) {
+        const xSLG = parseFloat(sData[idxXSLG]);
+        player.stats["SLG"] = (player.stats["SLG"] * (1 - savantWeight)) + (xSLG * savantWeight);
+      }
+    } 
+    else if (type === "Pitcher") {
+      const idxXERA = headers.indexOf("xera");
+      const idxXBA = headers.indexOf("xba");
+      const idxBBPct = headers.indexOf("bb_percent");
+      
+      if (idxXERA > -1 && sData[idxXERA]) {
+        const xERA = parseFloat(sData[idxXERA]);
+        player.stats["ERA"] = (player.stats["ERA"] * (1 - savantWeight)) + (xERA * savantWeight);
+      }
+      if (idxXBA > -1 && idxBBPct > -1 && sData[idxXBA] && sData[idxBBPct]) {
+        const xBA = parseFloat(sData[idxXBA]);
+        const bbPct = parseFloat(sData[idxBBPct]) / 100;
+        const estimated_xWHIP = (xBA * 4.0) + (bbPct * 4.0); 
+        
+        player.stats["WHIP"] = (player.stats["WHIP"] * (1 - savantWeight)) + (estimated_xWHIP * savantWeight);
+      }
+    }
+  });
+
+  return blendedMap;
+}
+
+// ============================================================================
 //  CALCULATE PLAYER VALUES
 // ============================================================================
 
-/**
- * Computes SGP and PAR values using dynamically blended projections.
- * @writesTo _VALUE
- */
 function calcPlayerValues() {
   const ss = getPrimarySS();
   const dataSS = getDataSS();
   if (!dataSS) return;
 
-  // 1. Load Named Ranges
   const statCats = ss.getRangeByName("WEIGHTS_CATEGORIES")?.getValues() || [];
   const statFacts = ss.getRangeByName("WEIGHTS_FACTORS")?.getValues() || [];
   const baseData = ss.getRangeByName("WEIGHTS_BASELINES")?.getValues() || [];
@@ -182,7 +287,6 @@ function calcPlayerValues() {
   const rlpRanks = {};
   rlpData.forEach(row => { if (row[0]) rlpRanks[row[0].toString().trim()] = parseInt(row[1]) || 0; });
 
-  // 2. Load Projections (Updated to _BLEND)
   const projSheet = dataSS.getSheetByName("_BLEND");
   if (!projSheet || projSheet.getLastRow() < 2) return;
   
@@ -223,7 +327,6 @@ function calcPlayerValues() {
     playerSGPs.push({ id: pid, name: row[getCol("PLAYER")], team: row[getCol("TEAM")], pos: pos, type: type, sgp: totalSGP });
   }
 
-  // 3. Determine Positional Floors
   const posRLP_SGP = {};
   Object.keys(rlpRanks).forEach(pos => {
     let pool = [];
@@ -240,8 +343,6 @@ function calcPlayerValues() {
     posRLP_SGP[pos] = (pool.length > 0 && idx >= 0) ? pool[idx].sgp : 0;
   });
 
-  // 4. Calculate PAR and Write Output
-  // Schema: IDPLAYER, Player, TEAM, Position, Type, Total SGP, Scarcity, PAR Value
   const outputRows = [["IDPLAYER", "Player", "TEAM", "Position", "Type", "Total SGP", "Scarcity", "PAR Value"]];
   
   playerSGPs.forEach(p => {
@@ -264,10 +365,7 @@ function calcPlayerValues() {
     ]);
   });
 
-  // Sort by PAR Value descending
   const sortedData = outputRows.slice(1).sort((a, b) => b[7] - a[7]);
   writeToData("_VALUE", [outputRows[0], ...sortedData]);
-  
-  // NOTE: Changed to UPDATE_VALUE to match the sheet name conventions perfectly.
   _updateTimestamp("UPDATE_VALUE");
 }
