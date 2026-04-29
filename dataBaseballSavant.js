@@ -2,7 +2,7 @@
  * @file dataBaseballSavant.gs
  * @description Advanced fetcher for Baseball Savant data. Pulls both percentile data 
  * (for UI/dashboards) and Raw xStats (for projection regression modeling).
- * Keys all data by MLB_ID.
+ * Keys all data by MLB_ID and dynamically resolves duplicate column headers.
  * @dependencies _helpers.gs, resolvePlayer.gs
  * @writesTo _BS_B, _BS_P, _BS_RAW_B, _BS_RAW_P
  */
@@ -16,23 +16,21 @@ const SAVANT_CONFIG = {
     sheetName: '_BS_B',
     urls: [
       'https://baseballsavant.mlb.com/leaderboard/percentile-rankings?type=batter&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=batter&min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/bat-tracking?min_swings=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/sprint_speed?min_opps=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/baserunning-run-value?csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/run_value?type=batter&min=1&csv=true'
+      'https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=batter&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/bat-tracking?type=batter&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/bat-tracking/swing-path-attack-angle?type=batter&csv=true'
     ]
   },
   pitchers: {
     sheetName: '_BS_P',
     urls: [
       'https://baseballsavant.mlb.com/leaderboard/percentile-rankings?type=pitcher&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=pitcher&min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/pitch-arsenal-stats?min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/pitch-movement?min=1&csv=true',
-      'https://baseballsavant.mlb.com/leaderboard/run_value?type=pitcher&min=1&csv=true'
+      'https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=pitcher&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/bat-tracking?type=pitcher&csv=true',
+      'https://baseballsavant.mlb.com/leaderboard/swing-take?leverage=Neutral&group=Pitcher&csv=true'
     ]
   },
   rawBatters: {
@@ -106,7 +104,7 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
   const responses = UrlFetchApp.fetchAll(requests);
   
   const playerMap = {};
-  const allHeaders = ['IDPLAYER', 'MLBID']; 
+  const allHeaders = ['IDPLAYER', 'MLBID', 'PlayerName']; 
   const headerTracker = new Set(allHeaders);
 
   responses.forEach((response, index) => {
@@ -128,16 +126,27 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
 
     if (iPlayerId === -1) return; 
 
-    // Record unique headers
-    const validColIndices = [];
+    // Map headers and resolve duplicates dynamically
+    const colMapping = [];
     rawHeaders.forEach((header, idx) => {
       const isRedundant = ['player_id', 'player_name', 'last_name, first_name', 'first_name', 'last_name', 'year'].includes(header.toLowerCase());
+      
       if (!isRedundant) {
-        validColIndices.push(idx);
-        if (!headerTracker.has(header)) {
-          headerTracker.add(header);
-          allHeaders.push(header);
+        let resolvedName = header;
+        let counter = 2;
+        
+        // If this header already exists in our master list, increment until we find a unique name
+        while (headerTracker.has(resolvedName)) {
+          resolvedName = `${header}_${counter}`;
+          counter++;
         }
+        
+        // Add the unique name to our trackers
+        headerTracker.add(resolvedName);
+        allHeaders.push(resolvedName);
+        
+        // Save the instruction to map this specific column index to its new unique name
+        colMapping.push({ idx: idx, resolvedName: resolvedName });
       }
     });
 
@@ -155,12 +164,12 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
         // Resolve ID based on MLBID mapping
         const primaryId = resolvePrimaryId(maps, mlbId, mlbId, null, fullName, `Savant_${sheetName}`, null);
         
-        playerMap[mlbId] = { 'IDPLAYER': primaryId, 'MLBID': mlbId };
+        playerMap[mlbId] = { 'IDPLAYER': primaryId, 'MLBID': mlbId, 'PlayerName': fullName };
       }
 
-      validColIndices.forEach(idx => {
-        const headerName = rawHeaders[idx];
-        playerMap[mlbId][headerName] = row[idx];
+      // Write the data using the newly resolved, unique header names
+      colMapping.forEach(mapping => {
+        playerMap[mlbId][mapping.resolvedName] = row[mapping.idx];
       });
     }
   });

@@ -194,12 +194,21 @@ function _logError(scriptName, errorMessage, severity) {
   
   if (!sheet) {
     sheet = ss.insertSheet('Error Log');
-    sheet.getRange('A3:D3').setValues([['DATE & TIME', 'SCRIPT NAME', 'ERROR MESSAGE', 'SEVERITY']]);
-    sheet.getRange('A3:D3').setFontWeight('bold');
+    sheet.getRange('A3:E3').setValues([['Date and Time', '', 'Script', 'Error', 'Severity']]);
+    sheet.getRange('A3:E3').setFontWeight('bold');
   }
 
+  // 1. Insert the new blank row at row 4
   sheet.insertRowBefore(4);
-  sheet.getRange('A4:D4').setValues([[new Date(), scriptName, errorMessage, severity]]);
+  
+  // 2. Grab the formatting from the row that just got pushed down (Row 5) 
+  // and paint it onto the new blank row (Row 4)
+  const formatSource = sheet.getRange('A5:E5');
+  const formatDestination = sheet.getRange('A4:E4');
+  formatSource.copyTo(formatDestination, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+
+  // 3. Write your error data into the newly formatted row
+  sheet.getRange('A4:E4').setValues([[new Date(), '', scriptName, errorMessage, severity]]);
 }
 
 function _updateTimestamp(namedRange) {
@@ -262,4 +271,33 @@ function _getLeagueScheduleContext() {
   context.isPlayoffs = (context.currentWeek >= context.playoffStartWeek);
   
   return context;
+}
+
+// ============================================================================
+//  DASHBOARD CONFIGURATION READER
+// ============================================================================
+
+/**
+ * Reads a 2-column Named Range from the settings dashboard and returns the value 
+ * for a specific key. This allows the script to read the UI dynamically.
+ * @param {string} rangeName - The Named Range (e.g., 'CUSTOM_CATEGORY_SCALING')
+ * @param {string} key - The text in the left column (e.g., 'HR factor')
+ * @param {any} defaultValue - Fallback if not found
+ */
+function getDashboardSetting(rangeName, key, defaultValue = 0) {
+  const ss = getPrimarySS();
+  const range = ss.getRangeByName(rangeName);
+  if (!range) return defaultValue;
+
+  const data = range.getValues();
+  for (let i = 0; i < data.length; i++) {
+    const rowKey = data[i][0]?.toString().trim().toLowerCase();
+    if (rowKey === key.toString().trim().toLowerCase()) {
+      const val = data[i][1];
+      // Return raw string for text toggles (e.g., "On", "mx"), otherwise parse float
+      if (typeof val === 'string' && isNaN(parseFloat(val))) return val.trim();
+      return val === "" ? defaultValue : parseFloat(val);
+    }
+  }
+  return defaultValue;
 }

@@ -81,7 +81,8 @@ function runCommonUpdates() {
   updateYahooManagers();     
   
   // 4. Utilities (Depends on Rosters)
-  saveAcquiredData();          
+  saveAcquiredData();
+  updatePlayerDashboards();
   
   // 5. Cleanup
   _spreadsheetCounts();      

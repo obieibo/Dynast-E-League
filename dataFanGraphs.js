@@ -11,17 +11,193 @@
 //  CONSTANTS & TARGET SCHEMAS
 // ============================================================================
 
-const FG_LEADERBOARD_BASE = 'https://www.fangraphs.com/api/leaders/major-league/data?pos=all&lg=all&qual=0&month=0&hand=&team=0&pageitems=2000000&pagenum=1&ind=0&rost=0&players=&sortdir=default&sortstat=WAR';
-
-const FG_BAT_TYPES = [8, 1, 2, 7, 5, 24, 6]; 
-const FG_PITCH_TYPES = [0, 1, 2, 23, 24, 36, 44]; 
-
 const FG_BAT_COLUMNS = [
-  "IDPLAYER", "IDFANGRAPHS", "YEAR", "PlayerName", "TeamNameAbb", "Age", "G", "AB", "PA", "H", "1B", "2B", "3B", "HR", "R", "RBI", "BB", "SO", "HBP", "SF", "SH", "SB", "CS", "AVG", "BB%", "K%", "BB/K", "OBP", "SLG", "OPS", "ISO", "BABIP", "GB/FB", "LD%", "GB%", "FB%", "IFFB%", "HR/FB", "wOBA", "wRAA", "wRC", "Batting", "BaseRunning", "Positional", "Offense", "Spd", "wRC+", "wBsR", "O-Swing%", "Z-Swing%", "Swing%", "O-Contact%", "Z-Contact%", "Contact%", "Zone%", "F-Strike%", "SwStr%", "CStr%", "C+SwStr%", "Pull%", "Cent%", "Oppo%", "Soft%", "Med%", "Hard%", "AVG+", "BB%+", "K%+", "OBP+", "SLG+", "ISO+", "BABIP+", "LD%+", "GB%+", "FB%+", "HRFB%+", "Pull%+", "Cent%+", "Oppo%+", "Soft%+", "Med%+", "Hard%+", "xwOBA", "xAVG", "xSLG", "XBR", "AvgBatSpeed", "FastSwing%", "SwingLength", "SquaredUpContact%", "SquaredUpSwing%", "BlastContact%", "BlastSwing%", "Tilt", "AttackAngle", "AttackDirection", "IdealAttackAngle%", "EV", "LA", "Barrel%", "maxEV", "HardHit%", "EV90"
+"IDPLAYER", "IDFANGRAPHS",
+"PlayerName",
+"position",
+"playerid",
+"TeamNameAbb",
+"xMLBAMID",
+"Season",
+"Age",
+"AB",
+"PA",
+"H",
+"1B",
+"2B",
+"3B",
+"HR",
+"R",
+"RBI",
+"BB",
+"SO",
+"HBP",
+"SF",
+"SB",
+"CS",
+"AVG",
+"BB%",
+"K%",
+"BB/K",
+"OBP",
+"SLG",
+"OPS",
+"ISO",
+"BABIP",
+"GB/FB",
+"LD%",
+"GB%",
+"FB%",
+"HR/FB",
+"wOBA",
+"Batting",
+"Offense",
+"WAR",
+"Spd",
+"wRC+",
+"O-Swing%",
+"Z-Swing%",
+"Swing%",
+"O-Contact%",
+"Z-Contact%",
+"Contact%",
+"SwStr%",
+"CStr%",
+"C+SwStr%",
+"AVG+",
+"BB%+",
+"K%+",
+"OBP+",
+"SLG+",
+"ISO+",
+"BABIP+",
+"LD%+",
+"GB%+",
+"FB%+",
+"HRFB%+",
+"Pull%+",
+"Cent%+",
+"Oppo%+",
+"Soft%+",
+"Med%+",
+"Hard%+",
+"xwOBA",
+"xAVG",
+"xSLG",
+"AvgBatSpeed",
+"FastSwing%",
+"SwingLength",
+"SquaredUpContact%",
+"SquaredUpSwing%",
+"BlastContact%",
+"BlastSwing%",
+"IdealAttackAngle%",
+"EV",
+"LA",
+"Barrel%",
+"maxEV",
+"HardHit%",
+"EV90"
 ];
 
 const FG_PITCH_COLUMNS = [
-  "IDPLAYER", "IDFANGRAPHS", "YEAR", "Name", "Team", "Age", "W", "L", "ERA", "G", "GS", "QS", "CG", "SV", "HLD", "BS", "IP", "TBF", "H", "R", "ER", "HR", "BB", "IBB", "HBP", "SO", "K/9", "BB/9", "K/BB", "HR/9", "K%", "BB%", "K-BB%", "WHIP", "BABIP", "FIP", "E-F", "xFIP", "SIERA", "GB/FB", "LD%", "GB%", "FB%", "IFFB%", "HR/FB", "EV", "EV90", "LA", "Barrel%", "HardHit%", "xERA", "sp_stuff", "sp_location", "sp_pitching"
+"IDPLAYER", "IDFANGRAPHS",
+"PlayerName",
+"position",
+"TeamNameAbb",
+"playerid",
+"xMLBAMID",
+"Season",
+"Age",
+"ERA",
+"G",
+"GS",
+"QS",
+"SV",
+"BS",
+"IP",
+"TBF",
+"H",
+"R",
+"ER",
+"HR",
+"BB",
+"HBP",
+"SO",
+"Pitches",
+"K/9",
+"BB/9",
+"K/BB",
+"H/9",
+"HR/9",
+"AVG",
+"WHIP",
+"BABIP",
+"LOB%",
+"FIP",
+"GB/FB",
+"LD%",
+"GB%",
+"FB%",
+"IFFB%",
+"HR/FB",
+"WAR",
+"tERA",
+"xFIP",
+"FBv",
+"O-Swing%",
+"Z-Swing%",
+"Swing%",
+"O-Contact%",
+"Z-Contact%",
+"Contact%",
+"Zone%",
+"F-Strike%",
+"SwStr%",
+"CStr%",
+"C+SwStr%",
+"HLD",
+"ERA-",
+"FIP-",
+"xFIP-",
+"K%",
+"BB%",
+"K-BB%",
+"SIERA",
+"kwERA",
+"E-F",
+"K/9+",
+"BB/9+",
+"K/BB+",
+"H/9+",
+"HR/9+",
+"AVG+",
+"WHIP+",
+"BABIP+",
+"LOB%+",
+"K%+",
+"BB%+",
+"LD%+",
+"GB%+",
+"FB%+",
+"HRFB%+",
+"Pull%+",
+"Cent%+",
+"Oppo%+",
+"Soft%+",
+"Med%+",
+"Hard%+",
+"xERA",
+"sp_stuff",
+"sp_location",
+"sp_pitching",
+"FastSwing%",
+"SquaredUpContact%",
+"SquaredUpSwing%",
+"BlastContact%",
+"BlastSwing%",
+"Barrel%",
+"HardHit%"
 ];
 
 // ============================================================================
@@ -40,12 +216,12 @@ function updateFanGraphsBatting() {
   if (archiveSS) {
     const archiveSheet = archiveSS.getSheetByName('_FG_B');
     if (_readFgYear(archiveSheet) !== prevYear) {
-      const prevData = _fetchAndMergeFanGraphs(prevYear, maps, 'bat', FG_BAT_TYPES, FG_BAT_COLUMNS);
+      const prevData = _fetchFanGraphsStats(prevYear, maps, 'bat', FG_BAT_COLUMNS);
       if (prevData && prevData.length > 1) writeToArchive('_FG_B', prevData);
     }
   }
 
-  const currentData = _fetchAndMergeFanGraphs(currentYear, maps, 'bat', FG_BAT_TYPES, FG_BAT_COLUMNS);
+  const currentData = _fetchFanGraphsStats(currentYear, maps, 'bat', FG_BAT_COLUMNS);
   if (currentData && currentData.length > 1) {
     try {
       writeToData('_FG_B', currentData);
@@ -72,12 +248,12 @@ function updateFanGraphsPitching() {
   if (archiveSS) {
     const archiveSheet = archiveSS.getSheetByName('_FG_P');
     if (_readFgYear(archiveSheet) !== prevYear) {
-      const prevData = _fetchAndMergeFanGraphs(prevYear, maps, 'pit', FG_PITCH_TYPES, FG_PITCH_COLUMNS);
+      const prevData = _fetchFanGraphsStats(prevYear, maps, 'pit', FG_PITCH_COLUMNS);
       if (prevData && prevData.length > 1) writeToArchive('_FG_P', prevData);
     }
   }
 
-  const currentData = _fetchAndMergeFanGraphs(currentYear, maps, 'pit', FG_PITCH_TYPES, FG_PITCH_COLUMNS);
+  const currentData = _fetchFanGraphsStats(currentYear, maps, 'pit', FG_PITCH_COLUMNS);
   if (currentData && currentData.length > 1) {
     try {
       writeToData('_FG_P', currentData);
@@ -89,46 +265,44 @@ function updateFanGraphsPitching() {
 }
 
 // ============================================================================
-//  INTERNAL MERGE ENGINE
+//  SINGLE-PULL FETCH ENGINE
 // ============================================================================
 
-function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) {
-  const urls = typeArray.map(t => `${FG_LEADERBOARD_BASE}&stats=${statType}&season=${year}&season1=${year}&type=${t}`);
-  const responses = _fetchAllYahooAPI(urls); 
+function _fetchFanGraphsStats(year, maps, statType, targetSchema) {
+  // Use type=8 for Batters (Statcast/Advanced) and type=1 for Pitchers
+  const typeCode = (statType === 'bat') ? 8 : 1;
   
-  const playerMap = {};
-  let anyData = false;
+  // Dynamic URL builder mapping directly to the new consolidated FanGraphs endpoints
+  const url = `https://www.fangraphs.com/api/leaders/major-league/data?age=&pos=all&stats=${statType}&lg=all&qual=0&season=${year}&season1=${year}&startdate=${year}-03-01&enddate=${year}-11-01&month=0&hand=&team=0&pageitems=2000000&pagenum=1&ind=0&rost=0&players=&type=${typeCode}&postseason=&sortdir=default&sortstat=WAR`;
 
-  const schemaKeys = new Set(targetSchema);
+  let response;
+  try {
+    response = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } });
+  } catch (e) {
+    Logger.log(`FanGraphs Fetch Error: ${e.message}`);
+    return null;
+  }
+  
+  if (response.getResponseCode() !== 200) return null;
 
-  responses.forEach(resp => {
-    if (!resp || !resp.data || resp.data.length === 0) return;
-    anyData = true;
-
-    resp.data.forEach(row => {
-      const fgIdRaw = row.playerid || row.playerids || row.PlayerId;
-      const fgId = fgIdRaw ? fgIdRaw.toString() : null;
-      if (!fgId) return;
-
-      if (!playerMap[fgId]) playerMap[fgId] = {};
-      
-      Object.keys(row).forEach(key => {
-        if (schemaKeys.has(key) || key === 'PlayerName' || key === 'Name' || key === 'Team' || key === 'TeamNameAbb' || key === 'xMLBAMID') {
-          playerMap[fgId][key] = row[key];
-        }
-      });
-    });
-  });
-
-  if (!anyData) return null;
+  let json;
+  try { 
+    json = JSON.parse(response.getContentText()); 
+  } catch (e) { 
+    return null; 
+  }
+  
+  const data = Array.isArray(json) ? json : (json?.data || []);
+  if (data.length === 0) return null;
 
   const outputRows = [targetSchema];
 
-  Object.values(playerMap).forEach(row => {
-    const fgIdRaw = row.playerid || row.playerids || row.PlayerId;
+  data.forEach(row => {
+    const fgIdRaw = row.playerid || row.playerids || row.PlayerId || row.PLAYERID;
     const fgId = fgIdRaw ? fgIdRaw.toString() : "";
-    
-    // SAFE MLB ID CHECK: Correctly extracts mlbamid and assigns it to 'mlbId' variable to prevent ReferenceErrors
+    if (!fgId) return;
+
+    // Correctly extracts mlbamid to prevent ReferenceErrors
     const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
     const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
     
@@ -138,7 +312,7 @@ function _fetchAndMergeFanGraphs(year, maps, statType, typeArray, targetSchema) 
     const teamAbbr = pTeamRaw.toString().replace(/<[^>]+>/g, '').trim();
     
     // Calls resolver using strictly 'mlbId' (never mlbamId)
-    const primaryId = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, 'updateFanGraphsStats', teamAbbr);
+    const primaryId = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, `updateFanGraphsStats_${statType}`, teamAbbr);
 
     const dataRow = targetSchema.map(col => {
       if (col === "IDPLAYER") return primaryId;
