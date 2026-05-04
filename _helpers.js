@@ -155,7 +155,6 @@ function _parseYahooPlayer(playerDataArray) {
     block.forEach(item => {
       if (!item) return;
       
-      // FIX: Extracts names safely whether Yahoo returns a string or a nested object
       if (item.player_key) p.pKey = item.player_key.toString();
       if (item.player_id) p.pId = item.player_id.toString();
       if (item.name) {
@@ -188,34 +187,54 @@ function _parsePositions(eligibilityString) {
 //  ERROR LOGGING & UTILITIES
 // ============================================================================
 
+/**
+ * Safely writes errors to the 'Error Log' sheet. 
+ * Includes failsafes for newly created or empty sheets to prevent index exceptions.
+ */
 function _logError(scriptName, errorMessage, severity) {
-  const ss = getPrimarySS();
-  let sheet = ss.getSheetByName('Error Log');
-  
-  if (!sheet) {
-    sheet = ss.insertSheet('Error Log');
-    sheet.getRange('A3:E3').setValues([['Date and Time', '', 'Script', 'Error', 'Severity']]);
-    sheet.getRange('A3:E3').setFontWeight('bold');
+  try {
+    const ss = getPrimarySS();
+    let sheet = ss.getSheetByName('Error Log');
+    
+    // 1. Create sheet if missing
+    if (!sheet) {
+      sheet = ss.insertSheet('Error Log');
+      sheet.getRange('A3:E3').setValues([['Date and Time', '', 'Script', 'Error', 'Severity']]);
+      sheet.getRange('A3:E3').setFontWeight('bold');
+    }
+
+    // 2. Safely ensure there are enough rows to execute an insertion
+    if (sheet.getMaxRows() < 4) {
+      sheet.insertRowsAfter(sheet.getMaxRows() || 1, 4 - (sheet.getMaxRows() || 1));
+    }
+
+    // 3. Insert the new blank row at row 4
+    sheet.insertRowBefore(4);
+    
+    // 4. Copy formatting ONLY if row 5 exists to copy from
+    if (sheet.getMaxRows() >= 5) {
+      const formatSource = sheet.getRange('A5:E5');
+      const formatDestination = sheet.getRange('A4:E4');
+      formatSource.copyTo(formatDestination, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+
+    // 5. Write error data
+    sheet.getRange('A4:E4').setValues([[new Date(), '', scriptName, errorMessage, severity]]);
+  } catch (e) {
+    // Ultimate fallback if logging itself fails
+    Logger.log(`CRITICAL LOGGING FAILURE: Could not write "${errorMessage}" to Error Log. Reason: ${e.message}`);
   }
-
-  // 1. Insert the new blank row at row 4
-  sheet.insertRowBefore(4);
-  
-  // 2. Grab the formatting from the row that just got pushed down (Row 5) 
-  // and paint it onto the new blank row (Row 4)
-  const formatSource = sheet.getRange('A5:E5');
-  const formatDestination = sheet.getRange('A4:E4');
-  formatSource.copyTo(formatDestination, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-
-  // 3. Write your error data into the newly formatted row
-  sheet.getRange('A4:E4').setValues([[new Date(), '', scriptName, errorMessage, severity]]);
 }
 
 function _updateTimestamp(namedRange) {
-  const range = getPrimarySS().getRangeByName(namedRange);
-  if (range) {
-    range.setValue(new Date());
-    SpreadsheetApp.flush();
+  try {
+    const range = getPrimarySS().getRangeByName(namedRange);
+    if (range) {
+      range.setValue(new Date());
+      SpreadsheetApp.flush();
+    }
+  } catch (e) {
+    Logger.log(`Failed to update timestamp for ${namedRange}`);
   }
 }
 
@@ -228,24 +247,20 @@ function _spreadsheetCounts() {
 
   targets.forEach(t => {
     if (!t.workbook) return;
-    const count = t.workbook.getSheets().reduce((sum, s) => sum + (s.getMaxRows() * s.getMaxColumns()), 0);
-    const range = getPrimarySS().getRangeByName(t.rangeName);
-    if (range) range.setValue(count);
+    try {
+      const count = t.workbook.getSheets().reduce((sum, s) => sum + (s.getMaxRows() * s.getMaxColumns()), 0);
+      const range = getPrimarySS().getRangeByName(t.rangeName);
+      if (range) range.setValue(count);
+    } catch (e) {}
   });
 }
 
-/**
- * @description Reads the _LEAGUE_INFO sheet to dynamically determine season progress.
- * Automatically flags when the league has entered the playoffs.
- * @returns {Object} Context object containing week numbers, dates, and playoff status.
- */
 function _getLeagueScheduleContext() {
   const dataSS = getDataSS();
   const infoSheet = dataSS.getSheetByName("_LEAGUE_INFO");
   
   if (!infoSheet) return null;
 
-  // Read columns A, B, C
   const data = infoSheet.getRange("A2:C" + infoSheet.getLastRow()).getValues();
   
   let context = {
@@ -267,37 +282,26 @@ function _getLeagueScheduleContext() {
     if (type === 'settings' && key === 'playoff_start_week') context.playoffStartWeek = parseInt(val, 10);
   });
 
-  // Automatically flag playoff mode
   context.isPlayoffs = (context.currentWeek >= context.playoffStartWeek);
   
   return context;
 }
 
-// ============================================================================
-//  DASHBOARD CONFIGURATION READER
-// ============================================================================
-
-/**
- * Reads a 2-column Named Range from the settings dashboard and returns the value 
- * for a specific key. This allows the script to read the UI dynamically.
- * @param {string} rangeName - The Named Range (e.g., 'CUSTOM_CATEGORY_SCALING')
- * @param {string} key - The text in the left column (e.g., 'HR factor')
- * @param {any} defaultValue - Fallback if not found
- */
 function getDashboardSetting(rangeName, key, defaultValue = 0) {
-  const ss = getPrimarySS();
-  const range = ss.getRangeByName(rangeName);
-  if (!range) return defaultValue;
+  try {
+    const ss = getPrimarySS();
+    const range = ss.getRangeByName(rangeName);
+    if (!range) return defaultValue;
 
-  const data = range.getValues();
-  for (let i = 0; i < data.length; i++) {
-    const rowKey = data[i][0]?.toString().trim().toLowerCase();
-    if (rowKey === key.toString().trim().toLowerCase()) {
-      const val = data[i][1];
-      // Return raw string for text toggles (e.g., "On", "mx"), otherwise parse float
-      if (typeof val === 'string' && isNaN(parseFloat(val))) return val.trim();
-      return val === "" ? defaultValue : parseFloat(val);
+    const data = range.getValues();
+    for (let i = 0; i < data.length; i++) {
+      const rowKey = data[i][0]?.toString().trim().toLowerCase();
+      if (rowKey === key.toString().trim().toLowerCase()) {
+        const val = data[i][1];
+        if (typeof val === 'string' && isNaN(parseFloat(val))) return val.trim();
+        return val === "" ? defaultValue : parseFloat(val);
+      }
     }
-  }
+  } catch (e) {}
   return defaultValue;
 }

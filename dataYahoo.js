@@ -254,10 +254,13 @@ function updateYahooMatchups() {
   _updateTimestamp('UPDATE_MATCHUPS');
 }
 
-// ============================================================================
-//  YAHOO MANAGERS (ARCHIVE & DISPLAY)
-// ============================================================================
-
+/**
+ * @function updateYahooManagers
+ * @description Fetches all historical and current teams for the league. Extracts manager
+ * details including the team logo URL. It archives the raw text data to a hidden sheet, 
+ * calculates a "Short Name" for UI purposes, and populates the front-end 'Managers' sheet.
+ * Uses dynamic =IMAGE() formulas referencing Column I to render logos efficiently.
+ */
 function updateYahooManagers() {
   const ss = getPrimarySS();
   const currentYear = parseInt(ss.getRangeByName('CURRENT_YEAR')?.getValue(), 10);
@@ -302,44 +305,86 @@ function updateYahooManagers() {
     }
   });
 
-  const allNames = [...new Set(allRows.map(r => r.mName).filter(Boolean))];
-  const shortNameMap = {};
-  const parsedNames = allNames.map(full => {
-    const parts = full.trim().split(/\s+/);
-    return { full, first: parts[0] || '', last: parts.length > 1 ? parts[parts.length - 1] : '' };
+  // ========================================================================
+  //  SHORT NAME CALCULATOR (GROUPED BY YEAR)
+  // ========================================================================
+  
+  const uniqueYears = [...new Set(allRows.map(r => r.year))];
+  
+  uniqueYears.forEach(year => {
+    const yearRows = allRows.filter(r => r.year === year);
+    const yearNames = [...new Set(yearRows.map(r => r.mName).filter(Boolean))];
+    const shortNameMap = {};
+    
+    const parsedNames = yearNames.map(full => {
+      const parts = full.trim().split(/\s+/);
+      return { full, first: parts[0] || '', last: parts.length > 1 ? parts[parts.length - 1] : '' };
+    });
+
+    parsedNames.forEach(n => {
+      if (!n.first) return;
+      
+      const sameFirst = parsedNames.filter(x => x.first.toLowerCase() === n.first.toLowerCase());
+      
+      if (sameFirst.length === 1) {
+        shortNameMap[n.full] = n.first;
+      } else if (n.last) {
+        const sameInit = sameFirst.filter(x => x.last.charAt(0).toLowerCase() === n.last.charAt(0).toLowerCase());
+        shortNameMap[n.full] = sameInit.length === 1 ? `${n.first} ${n.last.charAt(0)}.` : `${n.first} ${n.last.substring(0, 2)}.`;
+      } else {
+        shortNameMap[n.full] = n.first;
+      }
+    });
+
+    yearRows.forEach(r => {
+      r.shortName = r.mName ? (shortNameMap[r.mName] || r.mName) : '';
+    });
   });
 
-  parsedNames.forEach(n => {
-    if (!n.first) return;
-    const sameFirst = parsedNames.filter(x => x.first.toLowerCase() === n.first.toLowerCase());
-    if (sameFirst.length === 1) shortNameMap[n.full] = n.first;
-    else if (n.last) {
-      const sameInit = sameFirst.filter(x => x.last.charAt(0).toLowerCase() === n.last.charAt(0).toLowerCase());
-      shortNameMap[n.full] = sameInit.length === 1 ? `${n.first} ${n.last.charAt(0)}.` : `${n.first} ${n.last.substring(0, 2)}.`;
-    } else shortNameMap[n.full] = n.first;
-  });
-
-  allRows.forEach(r => r.shortName = r.mName ? (shortNameMap[r.mName] || r.mName) : '');
+  // ========================================================================
+  //  ARCHIVE OUTPUT
+  // ========================================================================
 
   const archiveOutput = [['YEAR', 'TEAM_ID', 'MANAGER_ID', 'ROSTER', 'ABBREVIATION', 'MANAGER', 'SHORT NAME', 'LOGO_URL']];
   allRows.forEach(r => archiveOutput.push([r.year, r.tId, r.mId, r.tName, r.abbr, r.mName, r.shortName, r.logoUrl]));
   writeToArchive('_MANAGERS', archiveOutput);
 
+  // ========================================================================
+  //  DISPLAY OUTPUT & FORMULA GENERATION
+  // ========================================================================
+  
   const displayOutput = [];
+  let currentRow = 4; // Tracks the literal row number on the sheet (starting at 4)
+  
   allRows.filter(r => r.year === currentYear || r.year === currentYear - 1)
          .sort((a,b) => b.year - a.year || parseInt(a.tId) - parseInt(b.tId))
-         .forEach(r => displayOutput.push([r.year, '', r.tName, r.abbr, r.mName, r.shortName, r.tId, r.mId, r.logoUrl]));
+         .forEach(r => {
+           
+           // Creates the formula string referencing the exact row in Column I
+           const imageFormula = r.logoUrl ? `=IMAGE(I${currentRow})` : '';
 
+           displayOutput.push([
+             r.year, 
+             imageFormula, // Col B: Formula dynamically built (e.g., "=IMAGE(I4)")
+             r.tName, 
+             r.abbr, 
+             r.mName, 
+             r.shortName, 
+             r.tId, 
+             r.mId, 
+             r.logoUrl     // Col I: Raw URL
+           ]);
+           
+           currentRow++; // Increment for the next loop iteration
+         });
+
+  // Write all data (values and formulas) to the sheet in a single batch
   if (displayOutput.length > 0) {
-    if (displaySheet.getLastRow() >= 4) displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 9).clearContent();
+    if (displaySheet.getLastRow() >= 4) {
+      displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 9).clearContent();
+    }
+    // .setValues() naturally evaluates strings starting with "=" as formulas
     displaySheet.getRange(4, 1, displayOutput.length, 9).setValues(displayOutput);
-    
-    const imageValues = displayOutput.map(row => {
-      const url = row[8];
-      try { return url ? [SpreadsheetApp.newCellImage().setSourceUrl(url).build()] : ['']; } 
-      catch (e) { return ['']; }
-    });
-    displaySheet.getRange(4, 2, imageValues.length, 1).setValues(imageValues);
   }
   
   _updateTimestamp('UPDATE_MANAGERS');
@@ -591,27 +636,29 @@ function updateYahooDraft() {
     const mId = tMap[tId]?.mId || '';
     const rName = tMap[tId]?.tName || '';
     
+    // Resolve the primary ID
     const primaryId = resolvePrimaryId(maps, p.pId, null, null, p.name, 'updateYahooDraft', p.team);
     const { cleanPositions, isIL, isNA } = _parsePositions(p.positions);
 
     dataRows.push([pick.round, pick.pick - ((pick.round - 1) * numTeams), pick.pick, p.keeper ? '' : adjCount++, tId, mId, rName, p.keeper, primaryId, p.pId, p.name, p.team, p.positions, cleanPositions, isIL, isNA]);
 
-    // Added "" at index 4 (Column E) to shift Manager to Column F
+    // Push into the Display Array (starting at Col R in the sheet)
     displayRows.push([
-      pick.round, 
-      pick.pick - ((pick.round - 1) * numTeams), 
-      pick.pick, 
-      p.keeper ? '' : (adjCount - 1),
-      "", // BLANK COLUMN E
-      `=XLOOKUP(${mId}, MANAGERS_MANAGER_ID, MANAGERS_SHORT_NAME, "")`, // Now Column F
-      `=INDEX(ICON_TEAM_LOGOS, MATCH(${tId}, CHOOSECOLS(ICON_TEAM_LOGOS, 1), 0), IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), 4, 3))`, 
-      rName,
-      p.keeper ? '=IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), ICON_K_LIGHT, ICON_K)' : '', 
-      p.name, // Now Column J
-      p.team ? `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${p.team}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(${currentYear}, MLB_TEAM_YEARS, 0) + IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), 1, 0)), "${p.team}")` : '',
-      cleanPositions, 
-      isIL ? '=IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), ICON_IL_LIGHT, ICON_IL)' : '', 
-      isNA ? '=IF(AND(INDIRECT("J"&ROW()) <> "", $J$1 > 0), ICON_NA_LIGHT, ICON_NA)' : ''
+      primaryId, // Col R: Now outputs the resolved IDPLAYER
+      pick.round, // Col S
+      pick.pick - ((pick.round - 1) * numTeams), // Col T
+      pick.pick, // Col U
+      p.keeper ? '' : (adjCount - 1), // Col V
+      "", // Col W (BLANK COLUMN)
+      `=XLOOKUP(${mId}, MANAGERS_MANAGER_ID, MANAGERS_SHORT_NAME, "")`, // Col X
+      `=INDEX(ICON_TEAM_LOGOS, MATCH(${tId}, CHOOSECOLS(ICON_TEAM_LOGOS, 1), 0), IF(AND(INDIRECT("AB"&ROW()) <> "", COUNTBLANK(AB4:AB) > 0), 4, 3))`,
+      rName, // Col Z
+      p.keeper ? '=IF(AND(INDIRECT("AB"&ROW()) <> "", COUNTBLANK(AB4:AB) > 0), ICON_K_LIGHT, ICON_K)' : '', // Col AA
+      p.name, // Col AB
+      p.team ? `=IFERROR(INDEX(MLB_TEAM_LOGOS, ROUNDUP(MATCH("${p.team}", TOCOL(MLB_TEAM_CODES), 0) / COLUMNS(MLB_TEAM_CODES)), MATCH(${currentYear}, MLB_TEAM_YEARS, 0) + IF(AND(INDIRECT("AB"&ROW()) <> "", COUNTBLANK(AB4:AB) > 0), 1, 0)), "${p.team}")` : '',
+      cleanPositions, // Col AD
+      isIL ? '=IF(AND(INDIRECT("AB"&ROW()) <> "", COUNTBLANK(AB4:AB) > 0), ICON_IL_LIGHT, ICON_IL)' : '',
+      isNA ? '=IF(AND(INDIRECT("AB"&ROW()) <> "", COUNTBLANK(AB4:AB) > 0), ICON_NA_LIGHT, ICON_NA)' : ''
     ]);
   });
 
@@ -619,10 +666,9 @@ function updateYahooDraft() {
 
   const displaySheet = ss.getSheetByName('Draft');
   if (displaySheet && displayRows.length > 0) {
-    // Range width updated from 13 to 14
-    if (displaySheet.getLastRow() >= 4) displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, 14).clearContent();
-    displaySheet.getRange(4, 1, displayRows.length, 14).setValues(displayRows);
-    displaySheet.getRange(4, 1, displayRows.length, 14).sort({column: 3, ascending: true});
+    if (displaySheet.getLastRow() >= 4) displaySheet.getRange(4, 18, displaySheet.getLastRow() - 3, 15).clearContent();
+    displaySheet.getRange(4, 18, displayRows.length, 15).setValues(displayRows);
+    displaySheet.getRange(4, 18, displayRows.length, 15).sort({column: 21, ascending: true});
   }
   _updateTimestamp('UPDATE_DRAFTS');
   flushIdMatchingQueue();

@@ -67,7 +67,9 @@ const ALL_PLAYERS_LAYOUT = [
   
   // Rankings and SGP Values
   /** FP Rank **/   { source: "FP", header: "RANK" },
-  /** PL **/        { source: "BLANK" },
+  /** PL SP **/        { source: "BLANK" },
+  /** PL RP **/        { source: "BLANK" },
+  /** PL Hitters **/        { source: "BLANK" },
   /** THE BAT X **/ { source: "SGP", header: "THE BAT X" },
   /** OOPSY **/     { source: "SGP", header: "OOPSY" },
   /** ATC **/       { source: "SGP", header: "ATC" },

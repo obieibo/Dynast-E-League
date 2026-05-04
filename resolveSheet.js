@@ -11,18 +11,42 @@
 
 const RESOLUTION_CONFIG = [
   {
-    sheetName: "Pitcher List", 
-    // You can add as many input/output pairs to this array as you need!
+    sheetName: "PL Pitchers", 
+    // You can add as many input/output/team pairs to this array as you need!
     ranges: [
       { 
-        input: "RESOLVE_PL_SP_INPUT",   // e.g., 'Pitcher List'!F4:F103
-        output: "RESOLVE_PL_SP_OUTPUT", // e.g., 'Pitcher List'!A4:A103
+        input: "RESOLVE_PL_SP_INPUT",
+        output: "RESOLVE_PL_SP_OUTPUT",
+        teamInput: "RESOLVE_PL_SP_TEAM",
         sourceName: "Pitcher List (SP)" 
       },
       { 
-        input: "RESOLVE_PL_RP_INPUT",   // e.g., 'Pitcher List'!P4:P103
-        output: "RESOLVE_PL_RP_OUTPUT", // e.g., 'Pitcher List'!O4:O103
+        input: "RESOLVE_PL_RP_INPUT",
+        output: "RESOLVE_PL_RP_OUTPUT",
+        teamInput: "RESOLVE_PL_RP_TEAM",
         sourceName: "Pitcher List (RP)" 
+      }
+    ]
+  },
+  {
+    sheetName: "PL Hitters", 
+    ranges: [
+      { 
+        input: "RESOLVE_PL_HIT_INPUT",
+        output: "RESOLVE_PL_HIT_OUTPUT", 
+        teamInput: "RESOLVE_PL_HIT_TEAM",
+        sourceName: "Pitcher List (Hitters)" 
+      }
+    ]
+  },
+  {
+    sheetName: "Draft", 
+    ranges: [
+      { 
+        input: "RESOLVE_DRAFT_ACTIVE_INPUT",
+        output: "RESOLVE_DRAFT_ACTIVE_OUTPUT",
+        teamInput: "RESOLVE_DRAFT_ACTIVE_TEAM",
+        sourceName: "Draft (Active Rosters)" 
       }
     ]
   }
@@ -93,11 +117,24 @@ function _singleRangeResolution(rangePair, maps) {
   const inputValues = inputRange.getValues();
   const outputValues = [];
   
+  // ---> NEW LOGIC: Fetch team abbreviations if a Named Range was provided <---
+  let teamValues = null;
+  if (rangePair.teamInput) {
+    const teamRange = ss.getRangeByName(rangePair.teamInput);
+    if (teamRange) {
+      teamValues = teamRange.getValues();
+    } else {
+      _logError('resolveSheet.gs', `Missing Named Range: ${rangePair.teamInput}. Continuing without teams.`, 'MEDIUM');
+    }
+  }
+  
   for (let i = 0; i < inputValues.length; i++) {
     const playerName = inputValues[i][0]; 
+    const teamName = teamValues ? teamValues[i][0] : null; // Extract team name if we have it
+    
     if (playerName) {
-      // Resolve the player name to the Master ID
-      const id = resolvePrimaryId(maps, null, null, null, playerName, rangePair.sourceName, null);
+      // Resolve the player name to the Master ID, passing the teamName at the end
+      const id = resolvePrimaryId(maps, null, null, null, playerName, rangePair.sourceName, teamName);
       outputValues.push([id]);
       resolvedCount++;
     } else {

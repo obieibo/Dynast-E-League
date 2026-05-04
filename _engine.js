@@ -484,7 +484,7 @@ function runPlayerValuation() {
 
   Logger.log("Starting Player Valuation Engine...");
 
-  // 1. Build Projection Weights Dictionary from UI (Now respects dynamically injected >0 weights)
+  // 1. Build Projection Weights Dictionary from UI
   const statList = ss.getRangeByName("ENGINE_STAT").getValues().map(r => r[0]?.toString().trim());
   const weightsMap = {}; 
   
@@ -497,9 +497,6 @@ function runPlayerValuation() {
       if (!stat) return;
       
       const w = parseFloat(weights[i][0]) || 0;
-      
-      // We pull the weight if it > 0 (meaning the engine selected it or the user overrode it)
-      // OR if it's explicitly checked (even if the engine calculated it down to 0, which is handled naturally).
       if (w > 0 || isChecked) {
         if (!weightsMap[stat]) weightsMap[stat] = {};
         weightsMap[stat][sys.name.toLowerCase()] = w;
@@ -523,10 +520,26 @@ function runPlayerValuation() {
   const bStats = ["PA", "R", "HR", "RBI", "SB", "CS", "OBP", "SLG"];
   const pStats = ["IP", "SO", "QS", "SV", "HLD", "ERA", "WHIP"];
   
-  let blendedPlayers = {
-    ..._blendDataset(dataSS, "_FG_PROJ_B", weightsMap, "Batter", bStats, posMap),
-    ..._blendDataset(dataSS, "_FG_PROJ_P", weightsMap, "Pitcher", pStats, posMap)
-  };
+  // We retrieve them as isolated maps first
+  const battersMap = _blendDataset(dataSS, "_FG_PROJ_B", weightsMap, "Batter", bStats, posMap);
+  const pitchersMap = _blendDataset(dataSS, "_FG_PROJ_P", weightsMap, "Pitcher", pStats, posMap);
+
+  // -------------------------------------------------------------------------
+  //  DUAL PROFILE ISOLATION
+  //  Assigns players unique keys based on their Type so two-way players 
+  //  (or hitters who pitched an inning) receive distinct rows in _ENGINE.
+  //  Dashboards automatically compile both instances naturally.
+  // -------------------------------------------------------------------------
+  let blendedPlayers = {};
+
+  Object.values(battersMap).forEach(b => {
+    blendedPlayers[`${b.id}_Batter`] = b;
+  });
+
+  Object.values(pitchersMap).forEach(p => {
+    blendedPlayers[`${p.id}_Pitcher`] = p;
+  });
+  // -------------------------------------------------------------------------
 
   // 4. In-Memory Calibration (Baselines & Fallbacks)
   blendedPlayers = _calibrateAndApplyBaselines(ss, blendedPlayers);
@@ -826,6 +839,11 @@ function _calculateFitScores(ss, dataSS, blendedPlayers) {
     });
   }
 
+  // -------------------------------------------------------------------------
+  //  INCUMBENT RETRIEVAL
+  //  If a player has a dual profile, their team derives maximum positional
+  //  value from their best role.
+  // -------------------------------------------------------------------------
   const incumbents = {};
   const myPlayers = [];
   if (rosterSheet) {
@@ -835,7 +853,15 @@ function _calculateFitScores(ss, dataSS, blendedPlayers) {
       if (row[rHead.indexOf("TEAM_ID")]?.toString() === myTeamId) {
         const pid = row[rHead.indexOf("IDPLAYER")]?.toString();
         myPlayers.push(pid);
-        const par = blendedPlayers[pid] ? blendedPlayers[pid].par : 0;
+        
+        const bPlayer = blendedPlayers[`${pid}_Batter`];
+        const pPlayer = blendedPlayers[`${pid}_Pitcher`];
+        
+        let par = 0;
+        if (bPlayer && pPlayer) par = Math.max(bPlayer.par, pPlayer.par);
+        else if (bPlayer) par = bPlayer.par;
+        else if (pPlayer) par = pPlayer.par;
+
         const posStr = row[rHead.indexOf("POSITION")] || "";
         posStr.split(",").forEach(pos => {
           const p = pos.trim();
