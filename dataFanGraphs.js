@@ -269,10 +269,7 @@ function updateFanGraphsPitching() {
 // ============================================================================
 
 function _fetchFanGraphsStats(year, maps, statType, targetSchema) {
-  // Use type=8 for Batters (Statcast/Advanced) and type=1 for Pitchers
   const typeCode = (statType === 'bat') ? 8 : 1;
-  
-  // Dynamic URL builder mapping directly to the new consolidated FanGraphs endpoints
   const url = `https://www.fangraphs.com/api/leaders/major-league/data?age=&pos=all&stats=${statType}&lg=all&qual=0&season=${year}&season1=${year}&startdate=${year}-03-01&enddate=${year}-11-01&month=0&hand=&team=0&pageitems=2000000&pagenum=1&ind=0&rost=0&players=&type=${typeCode}&postseason=&sortdir=default&sortstat=WAR`;
 
   let response;
@@ -302,7 +299,6 @@ function _fetchFanGraphsStats(year, maps, statType, targetSchema) {
     const fgId = fgIdRaw ? fgIdRaw.toString() : "";
     if (!fgId) return;
 
-    // Correctly extracts mlbamid to prevent ReferenceErrors
     const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
     const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
     
@@ -311,8 +307,8 @@ function _fetchFanGraphsStats(year, maps, statType, targetSchema) {
     const pName = pNameRaw.toString().replace(/<[^>]+>/g, '').trim();
     const teamAbbr = pTeamRaw.toString().replace(/<[^>]+>/g, '').trim();
     
-    // Calls resolver using strictly 'mlbId' (never mlbamId)
-    const primaryId = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, `updateFanGraphsStats_${statType}`, teamAbbr);
+    // FIX: Passed null for Yahoo ID so FG IDs don't cross-contaminate
+    const primaryId = resolvePrimaryId(maps, null, mlbId, fgId, pName, `updateFanGraphsStats_${statType}`, teamAbbr);
 
     const dataRow = targetSchema.map(col => {
       if (col === "IDPLAYER") return primaryId;
@@ -451,7 +447,6 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
         
         validPlayerCount++;
         
-        // Ensure mlbId is defined identically to avoid ReferenceError
         const mlbIdRaw = row.xMLBAMID || row.MLBAMID || row.mlbamid;
         const mlbId = mlbIdRaw ? mlbIdRaw.toString() : null;
         
@@ -463,7 +458,8 @@ function _updateFanGraphsProjections(projGroups, statType, outputSheet, typeSuff
         
         const cacheKey = `${fgId}_${mlbId}_${pName}`;
         if (!idCache[cacheKey]) {
-          idCache[cacheKey] = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, `updateFGProj_${statType}`, teamAbbr);
+          // FIX: Passed null for Yahoo ID so FG IDs don't cross-contaminate
+          idCache[cacheKey] = resolvePrimaryId(maps, null, mlbId, fgId, pName, `updateFGProj_${statType}`, teamAbbr);
         }
 
         row["IDPLAYER"]    = idCache[cacheKey];
@@ -606,7 +602,8 @@ function _fetchProspectData(year, maps) {
       const pName = (player["playerName"] || player["Name"] || "").toString().replace(/<[^>]+>/g, '').trim();
       const teamAbbr = (player["Team"] || player["team"] || "").toString().replace(/<[^>]+>/g, '').trim();
 
-      player["IDPLAYER"] = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, 'updateFanGraphsProspects', teamAbbr);
+      // FIX: Passed null for Yahoo ID
+      player["IDPLAYER"] = resolvePrimaryId(maps, null, mlbId, fgId, pName, 'updateFanGraphsProspects', teamAbbr);
       player["IDFANGRAPHS"] = fgId;
 
       const rowData = FG_PROSP_COLUMNS.map(key => {

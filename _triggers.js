@@ -17,8 +17,20 @@
  */
 function triggerManual() {
   if (!_isUpdateEnabled()) return;
-  runCommonUpdates1();
-  runCommonUpdates2();
+  updateYahooTransactions(); 
+  updateYahooDraft();        
+  updateYahooRosters();      
+  
+  updateYahooStandings();    
+  updateYahooMatchups();     
+  updateYahooTeamStats();    
+  updateYahooManagers();     
+  
+  saveAcquiredData();
+  updatePlayerDashboards();
+
+  _spreadsheetCounts();      
+  flushIdMatchingQueue(); 
 }
 
 /**
@@ -27,7 +39,13 @@ function triggerManual() {
  */
 function triggerHourly1() {
   if (!_isUpdateEnabled()) return;
-  runCommonUpdates1();
+  updateYahooTransactions(); 
+  updateYahooDraft();        
+  updateYahooRosters();      
+  
+  _spreadsheetCounts();      
+  flushIdMatchingQueue(); 
+
   _updateTimestamp('UPDATE_HOURLY_1');
 }
 
@@ -38,92 +56,6 @@ function triggerHourly1() {
  */
 function triggerHourly2() {
   if (!_isUpdateEnabled()) return;
-  runCommonUpdates2();
-  _updateTimestamp('UPDATE_HOURLY_2');
-}
-
-/**
- * Daily trigger entry point - PART 1
- * Runs external data sources (Stats, Percentiles, Rankings).
- */
-function triggerDaily1() {
-  if (!_isUpdateEnabled()) return;
-  runOccasionalUpdates1();
-  _updateTimestamp('UPDATE_DAILY_1');
-}
-
-/**
- * Daily trigger entry point - PART 2
- * Runs heavy FanGraphs Projections to prevent execution timeouts.
- */
-function triggerDaily2() {
-  if (!_isUpdateEnabled()) return;
-  runOccasionalUpdates2();
-  _updateTimestamp('UPDATE_DAILY_2');
-}
-
-/**
- * Daily trigger entry point - PART 3
- * Runs Prospects.
- */
-function triggerDaily3() {
-  if (!_isUpdateEnabled()) return;
-  runOccasionalUpdates3();
-  _updateTimestamp('UPDATE_DAILY_3');
-}
-
-/**
- * Daily trigger entry point - PART 4
- * Internal sheet resolutions.
- */
-function triggerDaily4() {
-  if (!_isUpdateEnabled()) return;
-  runOccasionalUpdates4();
-  _updateTimestamp('UPDATE_DAILY_4');
-}
-
-/**
- * Daily trigger entry point - PART 5
- * Updates _MAP.
- */
-function triggerDaily5() {
-  if (!_isUpdateEnabled()) return;
-  runOccasionalUpdates5();
-  _updateTimestamp('UPDATE_DAILY_5');
-}
-
-/**
- * Weekly trigger entry point.
- * Runs heavy historical / mapping updates.
- */
-function triggerWeekly() {
-  if (!_isUpdateEnabled()) return;
-  runWeeklyUpdates();
-  _updateTimestamp('UPDATE_WEEKLY');
-}
-
-// ============================================================================
-//  TRIGGER GROUPS (EXECUTION ORDER LOGIC)
-// ============================================================================
-
-/**
- * Common updates (Part 1): Foundation Data.
- * STRICT ORDER REQUIRED: Transactions and Drafts must resolve before Rosters.
- */
-function runCommonUpdates1() {
-  updateYahooTransactions(); 
-  updateYahooDraft();        
-  updateYahooRosters();      
-  
-  _spreadsheetCounts();      
-  flushIdMatchingQueue();    
-}
-
-/**
- * Common updates (Part 2): Stats, Visuals, and Lookups.
- * Safe to run independently once Rosters are established.
- */
-function runCommonUpdates2() {
   updateYahooStandings();    
   updateYahooMatchups();     
   updateYahooTeamStats();    
@@ -134,12 +66,15 @@ function runCommonUpdates2() {
   
   _spreadsheetCounts();      
   flushIdMatchingQueue();
+  _updateTimestamp('UPDATE_HOURLY_2');
 }
 
 /**
- * Occasional updates Part 1: External statistical data and rankings.
+ * Daily trigger entry point - PART 1
+ * Runs external data sources (Stats, Percentiles, Rankings).
  */
-function runOccasionalUpdates1() {
+function triggerDaily1() {
+  if (!_isUpdateEnabled()) return;
   updateFantasyProsRankings();
   updateBaseballSavantData();
   updateFanGraphsBatting();
@@ -147,58 +82,86 @@ function runOccasionalUpdates1() {
   
   _spreadsheetCounts();
   flushIdMatchingQueue();
+
+  _updateTimestamp('UPDATE_DAILY_1');
 }
 
 /**
- * Occasional updates Part 2: FanGraphs Projections (High API Load).
+ * Daily trigger entry point - PART 2
+ * Runs heavy FanGraphs Projections to prevent execution timeouts.
  */
-function runOccasionalUpdates2() {
+function triggerDaily2() {
+  if (!_isUpdateEnabled()) return;
   updateFanGraphsBattingProjections();
-  updateFanGraphsPitchingProjections();
-  
-  _spreadsheetCounts();
-  flushIdMatchingQueue();
+  _updateTimestamp('UPDATE_DAILY_2');
 }
 
 /**
- * Occasional updates Part 3: FanGraphs prospect data.
+ * Daily trigger entry point - PART 3
+ * Runs heavy FanGraphs Projections to prevent execution timeouts.
  */
-function runOccasionalUpdates3() {
+function triggerDaily3() {
+  if (!_isUpdateEnabled()) return;
+  updateFanGraphsPitchingProjections();
+  _updateTimestamp('UPDATE_DAILY_3');
+}
+
+/**
+ * Daily trigger entry point - PART 4
+ * Runs Prospects.
+ */
+function triggerDaily4() {
+  if (!_isUpdateEnabled()) return;
   updateFanGraphsProspects();
   
   _spreadsheetCounts();
   flushIdMatchingQueue();
+
+  _updateTimestamp('UPDATE_DAILY_4');
 }
 
 /**
- * Occasional updates Part 4: Internal sheet resolutions.
+ * Daily trigger entry point - PART 5
+ * Internal sheet resolutions.
  */
-function runOccasionalUpdates4() {
+function triggerDaily5() {
+  if (!_isUpdateEnabled()) return;
   executeAllSheetResolutions();
   
   _spreadsheetCounts();
   flushIdMatchingQueue();
+
+  _updateTimestamp('UPDATE_DAILY_5');
 }
 
 /**
- * Occasional updates Part 5: Update _MAP.
+ * Daily trigger entry point - PART 6
+ * Updates _MAP.
  */
-function runOccasionalUpdates5() {
+function triggerDaily6() {
+  if (!_isUpdateEnabled()) return;
   syncMapSheet();
   
   _spreadsheetCounts();
   flushIdMatchingQueue();
+
+  _updateTimestamp('UPDATE_DAILY_6');
 }
 
 /**
- * Weekly updates: Heavy lookups and archives.
+ * Weekly trigger entry point.
+ * Runs heavy historical updates.
  */
-function runWeeklyUpdates() {
+function triggerWeekly() {
+  if (!_isUpdateEnabled()) return;
   updateYahooPlayers(); 
   updateYahooLeagueInfo();
   updateHistoricalYahooRosters();
+
   _spreadsheetCounts();
   flushIdMatchingQueue();
+
+  _updateTimestamp('UPDATE_WEEKLY');
 }
 
 // ============================================================================
@@ -223,38 +186,47 @@ function _isUpdateEnabled() {
   return true;
 }
 
-/** Manually run Common updates 1 bypassing toggle. */
-function forceCommonUpdates1() { 
-  runCommonUpdates1(); 
-  runCommonUpdates2(); 
+/** Manually run Hourly updates 1 bypassing toggle. */
+function forceHourlyUpdates1() { 
+  triggerHourly1(); 
 }
 
-/** Manually run Common updates 2 bypassing toggle. */
-function forceCommonUpdates2() { 
-  runCommonUpdates2(); 
+/** Manually run Hourly updates 2 bypassing toggle. */
+function forceHourlyUpdates2() { 
+  triggerHourly2(); 
 }
 
-/** Manually run Occasional updates 1 bypassing toggle. */
-function forceOccasionalUpdates1() {
-  runOccasionalUpdates1();
+/** Manually run Daily updates 1 bypassing toggle. */
+function forceDailyUpdates1() {
+  triggerDaily1();
 }
 
-/** Manually run Occasional updates 2 bypassing toggle. */
-function forceOccasionalUpdates2() {
-  runOccasionalUpdates2();
+/** Manually run Daily updates 2 bypassing toggle. */
+function forceDailyUpdates2() {
+  triggerDaily2();
 }
 
-/** Manually run Occasional updates 3 bypassing toggle. */
-function forceOccasionalUpdates3() {
-  runOccasionalUpdates3();
+/** Manually run Daily updates 3 bypassing toggle. */
+function forceDailyUpdates3() {
+  triggerDaily3();
 }
 
-/** Manually run Occasional updates 4 bypassing toggle. */
-function forceOccasionalUpdates4() {
-  runOccasionalUpdates4();
+/** Manually run Daily updates 4 bypassing toggle. */
+function forceDailyUpdates4() {
+  triggerDaily4();
+}
+
+/** Manually run Daily updates 5 bypassing toggle. */
+function forceDailyUpdates5() {
+  triggerDaily5();
+}
+
+/** Manually run Daily updates 6 bypassing toggle. */
+function forceDailyUpdates6() {
+  triggerDaily6();
 }
 
 /** Manually run Weekly updates bypassing toggle. */
-function runWeeklyUpdatesNow() {
-  runWeeklyUpdates();
+function forceWeeklyUpdates() {
+  triggerWeekly();
 }

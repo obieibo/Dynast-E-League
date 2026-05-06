@@ -10,10 +10,6 @@
 //  HISTORICAL YAHOO TEAM STATS (CONSOLIDATED)
 // ============================================================================
 
-/**
- * Fetches final Yahoo season stats and appends them to a master historical sheet.
- * @param {number|string} year - Optional. Target year. Defaults to current year - 1.
- */
 function updateHistoricalYahooTeamStats(year) {
   const ss = getPrimarySS();
   const targetYear = year || parseInt(ss.getRangeByName("CURRENT_YEAR").getValue()) - 1;
@@ -89,10 +85,6 @@ function updateHistoricalYahooTeamStats(year) {
 //  HISTORICAL YAHOO ROSTERS (CONSOLIDATED MASTER)
 // ============================================================================
 
-/**
- * Fetches Yahoo rosters and appends them to a single master database sheet.
- * SCHEMA: YEAR, WEEK, TEAM_ID, ROSTER, IDPLAYER, YAHOOID, PLAYER, POSITION
- */
 function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
   const ss = getPrimarySS();
   const dataSS = getDataSS();
@@ -118,7 +110,6 @@ function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
     leagueKey = _getLeagueKey();
   }
 
-  // Get Roster Names for this specific year
   const teamsData = _fetchYahooAPI(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}/teams?format=json`);
   if (teamsData?.fantasy_content?.league?.[1]?.teams) {
     const teams = teamsData.fantasy_content.league[1].teams;
@@ -133,7 +124,6 @@ function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
   const maps = getPlayerMaps("YAHOOID");
   const newRosterRows = [];
 
-  // 2. Fetch rosters for all 12 teams
   for (let tId = 1; tId <= 12; tId++) {
     const url = `https://fantasysports.yahooapis.com/fantasy/v2/team/${leagueKey}.t.${tId}/roster;week=${targetWeek}?format=json`;
     const json = _fetchYahooAPI(url);
@@ -145,7 +135,6 @@ function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
         const p = _parseYahooPlayer(players[key].player);
         const primaryId = resolvePrimaryId(maps, p.pId, null, null, p.name, 'updateHistoricalRosters', p.team);
         
-        // NEW SCHEMA: YEAR (A), WEEK (B), TEAM_ID (C), ROSTER (D), IDPLAYER (E), YAHOOID (F), PLAYER (G), POSITION (H)
         newRosterRows.push([
           targetYear, 
           targetWeek, 
@@ -161,7 +150,6 @@ function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
     Utilities.sleep(200); 
   }
 
-  // 3. Consolidate into Archive
   const archiveSS = getArchiveSS();
   let sheet = archiveSS.getSheetByName(masterSheetName);
   let masterRosterData = [];
@@ -169,7 +157,6 @@ function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
 
   if (sheet && sheet.getLastRow() > 0) {
     masterRosterData = sheet.getDataRange().getValues();
-    // Remove previous entries for this year/week to allow clean re-runs
     masterRosterData = masterRosterData.filter(r => !(String(r[0]) === String(targetYear) && String(r[1]) === String(targetWeek)));
   } else {
     masterRosterData.push(header);
@@ -183,13 +170,10 @@ function updateHistoricalYahooRosters(backfillYear, backfillWeek) {
   Logger.log(`Consolidated rosters for ${targetYear} Week ${targetWeek} into ${masterSheetName}`);
 }
 
-/**
- * Utility to run backfills for any historical year
- */
 function runBackfillManual() {
-  const years = [2023, 2024]; // Add any years you need to backfill
+  const years = [2023, 2024]; 
   years.forEach(yr => {
-    updateHistoricalRosters(yr, 16);
+    updateHistoricalYahooRosters(yr, 16);
   });
 }
 
@@ -197,16 +181,12 @@ function runBackfillManual() {
 //  SEASON ARCHIVE (END OF YEAR ROLLOVER)
 // ============================================================================
 
-/**
- * Vaults the current season's Draft and resets the Data engine.
- */
 function archiveSeason() {
   const ss = getPrimarySS();
   const dataSS = getDataSS();
   const archiveSS = getArchiveSS();
   const currentYear = ss.getRangeByName('CURRENT_YEAR').getValue();
 
-  // 1. Vault Draft to master historical draft sheet
   const engineSheet = dataSS.getSheetByName('_DRAFT');
   if (engineSheet && engineSheet.getLastRow() > 1) {
     const engineData = engineSheet.getDataRange().getValues();
@@ -217,7 +197,6 @@ function archiveSeason() {
       archiveSheet.appendRow(['YEAR', ...engineData[0]]);
     }
     
-    // Check if year already exists to prevent duplicates
     let existingArchive = archiveSheet.getDataRange().getValues();
     let filteredArchive = existingArchive.filter(r => String(r[0]) !== String(currentYear));
     
@@ -228,13 +207,11 @@ function archiveSeason() {
     engineSheet.deleteRows(2, engineSheet.getLastRow() - 1);
   }
 
-  // 2. Clear current Transactions
   const transSheet = dataSS.getSheetByName('_TRANSACTIONS');
   if (transSheet && transSheet.getLastRow() > 1) {
     transSheet.deleteRows(2, transSheet.getLastRow() - 1);
   }
 
-  // 3. Clear the visual Draft board
   const displaySheet = ss.getSheetByName('Draft');
   if (displaySheet && displaySheet.getLastRow() >= 4) {
     displaySheet.getRange(4, 1, displaySheet.getLastRow() - 3, displaySheet.getMaxColumns()).clearContent();
@@ -243,30 +220,15 @@ function archiveSeason() {
   Logger.log(`Season ${currentYear} successfully archived.`);
 }
 
-/**
- * @file _importHistoricalPayload.gs
- * @description Ingests a massive raw JSON payload from a Google Drive file,
- * maps the player IDs to your Master IDs, formats the columns to the Archive schema, 
- * and appends them to the historical Vault. Bypasses Google Sheets cell character limits.
- * @dependencies _helpers.gs, resolvePlayer.gs
- */
-
 // ============================================================================
-//  RUN THIS FUNCTION
+//  JSON PAYLOAD IMPORT TOOL
 // ============================================================================
 
-/**
- * 1. Upload your JSON text file to Google Drive.
- * 2. Get the File ID from the share link.
- * 3. Update the variables below (year, systemName, type, and fileId).
- * 4. Run this function.
- */
 function runPayloadImport() {
-  const targetYear = 2025;         // <--- CHANGE THIS (e.g., 2025, 2026)
-  const systemName = "OOPSY";    // <--- CHANGE THIS (e.g., "Steamer", "ZiPS")
-  const playerType = "Pitcher";    // <--- CHANGE THIS ("Batter" or "Pitcher")
+  const targetYear = 2025;         
+  const systemName = "OOPSY";    
+  const playerType = "Pitcher";    
   
-  // PASTE YOUR GOOGLE DRIVE FILE ID HERE:
   const driveFileId = "1hAH8QDkTug8IyHIj9wLK5t7bf-2RIzqp"; 
   
   Logger.log(`Starting JSON Payload import for ${systemName} ${targetYear} (${playerType}s)...`);
@@ -274,15 +236,10 @@ function runPayloadImport() {
   _processJsonPayload(systemName, targetYear, playerType, driveFileId);
 }
 
-// ============================================================================
-//  CORE IMPORT LOGIC
-// ============================================================================
-
 function _processJsonPayload(systemName, year, type, fileId) {
   const archiveSS = getArchiveSS();
   if (!archiveSS) return;
 
-  // 1. Read and parse the JSON payload directly from Google Drive
   let rawJsonString;
   try {
     const file = DriveApp.getFileById(fileId);
@@ -300,7 +257,6 @@ function _processJsonPayload(systemName, year, type, fileId) {
     return;
   }
 
-  // Handle cases where FanGraphs wraps the array in a 'data' object
   const playerList = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);
   
   if (playerList.length === 0) {
@@ -308,13 +264,11 @@ function _processJsonPayload(systemName, year, type, fileId) {
     return;
   }
 
-  // 2. Define exactly which metadata keys to ignore (we only want pure stats)
   const excludeKeys = new Set([
     'playerid', 'playerids', 'xmlbamid', 'playername', 'team', 'shortname', 
     'league', 'upurl', 'teamid', 'minpos', 'name'
   ]);
 
-  // 3. Dynamically build the stat headers based on the first player object
   const statHeaders = [];
   const firstPlayer = playerList[0];
   Object.keys(firstPlayer).forEach(key => {
@@ -327,7 +281,6 @@ function _processJsonPayload(systemName, year, type, fileId) {
   const formattedRows = [];
   const maps = getPlayerMaps('IDFANGRAPHS');
 
-  // 4. Iterate through the payload and map players
   playerList.forEach(player => {
     const fgId = (player.playerid || player.playerids || "").toString().trim();
     const mlbId = (player.xMLBAMID || "").toString().trim();
@@ -336,20 +289,19 @@ function _processJsonPayload(systemName, year, type, fileId) {
 
     if (!fgId || !pName) return;
 
-    // Use the primary resolver. Pass mlbId if we have it to guarantee perfect matching
-    const primaryId = resolvePrimaryId(maps, fgId, mlbId, fgId, pName, `payloadImport_${systemName}`, team);
+    // FIX: Passed null for Yahoo ID 
+    const primaryId = resolvePrimaryId(maps, null, mlbId, fgId, pName, `payloadImport_${systemName}`, team);
 
     const newRow = [
       primaryId,
       fgId,
       year,
       systemName,
-      "Pre-Season", // Hardcoded so the Accuracy engine knows to grade it
+      "Pre-Season", 
       pName,
       team
     ];
 
-    // Map all the stat values in the exact order of the statHeaders array
     statHeaders.forEach(statKey => {
       newRow.push(player[statKey] !== undefined && player[statKey] !== null ? player[statKey] : "");
     });
@@ -359,7 +311,6 @@ function _processJsonPayload(systemName, year, type, fileId) {
 
   if (formattedRows.length === 0) return;
 
-  // 5. Append to the Archive Workbook
   const archiveSheetName = type === "Batter" ? '_ARCHIVE_PROJ_B' : '_ARCHIVE_PROJ_P';
   let archiveSheet = archiveSS.getSheetByName(archiveSheetName);
   
@@ -370,26 +321,13 @@ function _processJsonPayload(systemName, year, type, fileId) {
     archiveSheet.appendRow(finalHeaders);
   }
 
-  // Ensure we append to the bottom
   const startRow = archiveSheet.getLastRow() + 1;
   archiveSheet.getRange(startRow, 1, formattedRows.length, formattedRows[0].length).setValues(formattedRows);
   
   Logger.log(`Successfully imported ${formattedRows.length} ${type}s for ${systemName} ${year}.`);
-  
-  // Flush any unresolved players to the ID matching sheet
   flushIdMatchingQueue(); 
 }
 
-// ============================================================================
-//  HISTORICAL BACKFILL TOOL
-// ============================================================================
-
-/**
- * Manually backfills FanGraphs actual stats for a specific historical year.
- * Use this to populate your Archive workbook so the Accuracy Engine has actual 
- * data to grade the projections against.
- * You can change the year in the parameter to 2023, 2022, etc., and run manually.
- */
 function backfillFanGraphsActuals(year = 2025) {
   const maps = getPlayerMaps('IDFANGRAPHS');
   const ss = getPrimarySS();

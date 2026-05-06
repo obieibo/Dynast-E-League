@@ -292,8 +292,8 @@ function _addToIdMatchingQueue(name, team, source, mlbId, platformId, fgId, plat
       source || "System",                                     // Col E: Source
       hintId ? `[${hintId}]` : "",                            // Col F: Output column (Now writes Hint here)
       mlbId || "",                                            // Col G: MLBID
-      platformHeader === 'YAHOOID' ? platformId : "",         // Col H: YAHOOID
-      fgId || (platformHeader === 'IDFANGRAPHS' ? platformId : ""), // Col I: IDFANGRAPHS
+      fgId || (platformHeader === 'IDFANGRAPHS' ? platformId : ""), // Col H: IDFANGRAPHS
+      platformHeader === 'YAHOOID' ? platformId : "",         // Col I: YAHOOID
     ]);
   }
 }

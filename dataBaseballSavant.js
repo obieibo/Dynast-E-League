@@ -71,7 +71,6 @@ function updateBaseballSavantData() {
     const archiveSS = getArchiveSS();
     
     // 1. Check and Process Archive (Previous Year) ONLY if season is complete
-    // Archiving is restricted to percentile sheets to save space, unless requested otherwise
     if (archiveSS && !groupKey.includes('raw')) {
       const archiveSheet = archiveSS.getSheetByName(config.sheetName);
       if (_readSavantYear(archiveSheet) !== prevYear) {
@@ -95,7 +94,6 @@ function updateBaseballSavantData() {
 // ============================================================================
 
 function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
-  // Inject the year parameter where {year} is present, otherwise append it
   const requests = baseUrls.map(url => ({
     url: url.includes('{year}') ? url.replace('{year}', year) : `${url}&year=${year}`,
     muteHttpExceptions: true
@@ -135,17 +133,13 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
         let resolvedName = header;
         let counter = 2;
         
-        // If this header already exists in our master list, increment until we find a unique name
         while (headerTracker.has(resolvedName)) {
           resolvedName = `${header}_${counter}`;
           counter++;
         }
         
-        // Add the unique name to our trackers
         headerTracker.add(resolvedName);
         allHeaders.push(resolvedName);
-        
-        // Save the instruction to map this specific column index to its new unique name
         colMapping.push({ idx: idx, resolvedName: resolvedName });
       }
     });
@@ -161,13 +155,12 @@ function _fetchAndMergeSavantData(baseUrls, year, maps, sheetName) {
         if (iPlayerName !== -1) fullName = row[iPlayerName];
         else if (iFirst !== -1 && iLast !== -1) fullName = `${row[iFirst]} ${row[iLast]}`;
         
-        // Resolve ID based on MLBID mapping
-        const primaryId = resolvePrimaryId(maps, mlbId, mlbId, null, fullName, `Savant_${sheetName}`, null);
+        // FIX: Passed null for Yahoo ID so MLB IDs don't cross-contaminate
+        const primaryId = resolvePrimaryId(maps, null, mlbId, null, fullName, `Savant_${sheetName}`, null);
         
         playerMap[mlbId] = { 'IDPLAYER': primaryId, 'MLBID': mlbId, 'PlayerName': fullName };
       }
 
-      // Write the data using the newly resolved, unique header names
       colMapping.forEach(mapping => {
         playerMap[mlbId][mapping.resolvedName] = row[mapping.idx];
       });

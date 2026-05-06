@@ -747,29 +747,51 @@ function _calculateSGPandPAR(ss, dataSS, blendedPlayers) {
   const normPA = getDashboardSetting("ENGINE_SGP_VALUES", "OPS normalized PA", 500);
   const normIP_ERA = getDashboardSetting("ENGINE_SGP_VALUES", "ERA normalized IP", 150);
   const normIP_WHIP = getDashboardSetting("ENGINE_SGP_VALUES", "WHIP normalized IP", 150);
-  const bOPS = getDashboardSetting("ENGINE_SGP_VALUES", "OPS baseline", 0.750);
-  const bERA = getDashboardSetting("ENGINE_SGP_VALUES", "ERA baseline", 3.80);
-  const bWHIP = getDashboardSetting("ENGINE_SGP_VALUES", "WHIP baseline", 1.20);
+  
+  // Dashboard thresholds used for the Volume Penalty
+  const minBatPA = getDashboardSetting("ENGINE_SEASON_BLENDING", "Minimum batter PA", 150) || 150;
+  const minSpIP = getDashboardSetting("ENGINE_SEASON_BLENDING", "Minimum SP IP", 40) || 40;
+  const minRpIP = getDashboardSetting("ENGINE_SEASON_BLENDING", "Minimum RP IP", 15) || 15;
 
-  const fR = getDashboardSetting("ENGINE_CATEGORY_SCALING", "R factor", 1);
-  const fHR = getDashboardSetting("ENGINE_CATEGORY_SCALING", "HR factor", 1);
-  const fRBI = getDashboardSetting("ENGINE_CATEGORY_SCALING", "RBI factor", 1);
-  const fNSB = getDashboardSetting("ENGINE_CATEGORY_SCALING", "NSB factor", 1);
-  const fOPS = getDashboardSetting("ENGINE_CATEGORY_SCALING", "OPS factor", 100);
-  const fK = getDashboardSetting("ENGINE_CATEGORY_SCALING", "K factor", 1);
-  const fQS = getDashboardSetting("ENGINE_CATEGORY_SCALING", "QS factor", 1);
-  const fNSVH = getDashboardSetting("ENGINE_CATEGORY_SCALING", "NSVH factor", 1);
-  const fERA = getDashboardSetting("ENGINE_CATEGORY_SCALING", "ERA factor", 50);
-  const fWHIP = getDashboardSetting("ENGINE_CATEGORY_SCALING", "WHIP factor", 150);
+  let bOPS = 0.750, bERA = 3.80, bWHIP = 1.20;
+  const baseData = ss.getRangeByName("WEIGHTS_BASELINES")?.getValues() || [];
+  baseData.forEach(row => { 
+    const stat = row[0]?.toString().trim().toUpperCase();
+    if (stat === "OPS") bOPS = parseFloat(row[1]) || 0.750;
+    if (stat === "ERA") bERA = parseFloat(row[1]) || 3.80;
+    if (stat === "WHIP") bWHIP = parseFloat(row[1]) || 1.20;
+  });
+
+  const statCats = ss.getRangeByName("WEIGHTS_CATEGORIES")?.getValues() || [];
+  const statFacts = ss.getRangeByName("WEIGHTS_FACTORS")?.getValues() || [];
+
+  let fR = 18, fHR = 7, fRBI = 18, fNSB = 5, fOPS = 0.004, fK = 20, fQS = 4, fNSVH = 5, fERA = 0.04, fWHIP = 0.01;
+  
+  for (let i = 0; i < statCats.length; i++) {
+    const stat = statCats[i][0]?.toString().trim().toUpperCase();
+    const val = parseFloat(statFacts[i]?.[0]);
+    if (stat && !isNaN(val) && val !== 0) {
+      if (stat === "R") fR = val;
+      if (stat === "HR") fHR = val;
+      if (stat === "RBI") fRBI = val;
+      if (stat === "NSB" || stat === "SB") fNSB = val;
+      if (stat === "OPS") fOPS = val;
+      if (stat === "K" || stat === "SO") fK = val;
+      if (stat === "QS") fQS = val;
+      if (stat === "NSVH" || stat === "SV") fNSVH = val;
+      if (stat === "ERA") fERA = val;
+      if (stat === "WHIP") fWHIP = val;
+    }
+  }
 
   Object.values(blendedPlayers).forEach(p => {
     p.sgp = 0;
     if (p.type === "Batter") {
-      const opsSGP = (((p.stats["OPS"] - bOPS) * p.stats["PA"]) / normPA) / (fOPS / 100); 
+      const opsSGP = (((p.stats["OPS"] - bOPS) * p.stats["PA"]) / normPA) / fOPS; 
       p.sgp = (p.stats["R"]/fR) + (p.stats["HR"]/fHR) + (p.stats["RBI"]/fRBI) + (p.stats["NSB"]/fNSB) + opsSGP;
     } else {
-      const eraSGP = ((bERA - p.stats["ERA"]) * p.stats["IP"] / normIP_ERA) / (fERA / 50);
-      const whipSGP = ((bWHIP - p.stats["WHIP"]) * p.stats["IP"] / normIP_WHIP) / (fWHIP / 150);
+      const eraSGP = ((bERA - p.stats["ERA"]) * p.stats["IP"] / normIP_ERA) / fERA;
+      const whipSGP = ((bWHIP - p.stats["WHIP"]) * p.stats["IP"] / normIP_WHIP) / fWHIP;
       p.sgp = (p.stats["SO"]/fK) + (p.stats["QS"]/fQS) + (p.stats["NSVH"]/fNSVH) + eraSGP + whipSGP;
     }
   });
@@ -779,6 +801,14 @@ function _calculateSGPandPAR(ss, dataSS, blendedPlayers) {
   
   positions.forEach(pos => {
     let pool = Object.values(blendedPlayers).filter(p => {
+      // EXCLUDE GHOSTS FROM BASELINE
+      if (p.type === "Batter" && (p.stats["PA"] || 0) < minBatPA) return false;
+      if (p.type === "Pitcher") {
+        const isSP = p.pos.includes("SP");
+        const threshold = isSP ? minSpIP : minRpIP;
+        if ((p.stats["IP"] || 0) < threshold) return false;
+      }
+      
       if (pos === "Util" && p.type === "Batter") return true;
       if (pos === "P" && p.type === "Pitcher") return true;
       const pPosArray = p.pos.split(",").map(s => s.trim());
@@ -816,6 +846,23 @@ function _calculateSGPandPAR(ss, dataSS, blendedPlayers) {
     if (floor === 999) floor = 0;
     p.scarcity = floor * -1;
     p.par = p.sgp - floor;
+
+    // SINK GHOST PLAYERS WITH VOLUME PENALTY
+    if (p.type === "Batter") {
+      const pa = p.stats["PA"] || 0;
+      if (pa < minBatPA) {
+        const penalty = -15 + ((pa / minBatPA) * 15);
+        p.par = Math.min(p.par, penalty);
+      }
+    } else if (p.type === "Pitcher") {
+      const ip = p.stats["IP"] || 0;
+      const isSP = p.pos.includes("SP");
+      const threshold = isSP ? minSpIP : minRpIP;
+      if (ip < threshold) {
+        const penalty = -15 + ((ip / threshold) * 15);
+        p.par = Math.min(p.par, penalty);
+      }
+    }
   });
 
   return blendedPlayers;
